@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Grok Token Importer",
+  "version": "1.0.0",
+  "description": "一键提取 Grok SSO Token 并导入 grok2api",
+  "permissions": ["cookies"],
+  "host_permissions": ["https://grok.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grok Token Manager</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; padding: 20px; }
+  .container { max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 8px; color: #fff; }
+  .subtitle { color: #888; margin-bottom: 24px; font-size: 14px; }
+  .card { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .badge { font-size: 11px; background: #333; color: #aaa; padding: 2px 8px; border-radius: 10px; }
+  .steps { background: #111; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .steps ol { padding-left: 20px; }
+  .steps li { margin-bottom: 8px; line-height: 1.6; color: #bbb; }
+  .steps li strong { color: #fff; }
+  textarea { width: 100%; min-height: 120px; background: #111; border: 1px solid #333; border-radius: 8px; padding: 12px; color: #e0e0e0; font-family: monospace; font-size: 13px; resize: vertical; }
+  textarea::placeholder { color: #555; }
+  code { background: #222; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #a5b4fc; }
+  .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: #fff; color: #000; }
+  .btn-primary:hover { background: #ddd; }
+  .btn-secondary { background: #333; color: #e0e0e0; }
+  .btn-secondary:hover { background: #444; }
+  .btn-danger { background: #7f1d1d; color: #fca5a5; }
+  .btn-danger:hover { background: #991b1b; }
+  .pool-select { display: flex; gap: 8px; margin-bottom: 12px; }
+  .pool-select label { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: #222; border: 1px solid #333; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .pool-select input:checked + span { color: #f97316; }
+  .pool-select input { display: none; }
+  #tokenList { display: flex; flex-direction: column; gap: 8px; }
+  .token-item { display: flex; align-items: center; gap: 12px; background: #111; border-radius: 8px; padding: 12px; }
+  .token-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .token-item .dot.active { background: #22c55e; }
+  .token-item .dot.inactive { background: #ef4444; }
+  .token-item .info { flex: 1; min-width: 0; }
+  .token-item .info .top { display: flex; align-items: center; gap: 8px; }
+  .token-item .info .note { font-size: 13px; color: #fff; }
+  .token-item .info .pool-tag { font-size: 11px; background: #333; padding: 1px 6px; border-radius: 4px; color: #f97316; }
+  .token-item .info .bottom { font-size: 12px; color: #666; margin-top: 4px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .token-item .stats { font-size: 12px; color: #888; text-align: right; white-space: nowrap; }
+  .token-item button { padding: 6px 10px; font-size: 12px; }
+  .empty { text-align: center; padding: 32px; color: #555; }
+  .msg { padding: 10px 14px; border-radius: 8px; margin-top: 12px; font-size: 13px; display: none; }
+  .msg.success { display: block; background: #052e16; color: #86efac; border: 1px solid #166534; }
+  .msg.error { display: block; background: #2a0a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+  .msg.info { display: block; background: #1e1b4b; color: #a5b4fc; border: 1px solid #3730a3; }
+  .refresh-btn { float: right; padding: 4px 12px; font-size: 12px; }
+  .bookmarklet-drag {
+    display: inline-block;
+    padding: 14px 28px;
+    background: linear-gradient(135deg, #f97316, #ef4444);
+    color: #fff !important;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 12px;
+    text-decoration: none;
+    cursor: grab;
+    user-select: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 16px rgba(249, 115, 22, 0.3);
+  }
+  .bookmarklet-drag:hover { transform: scale(1.05); box-shadow: 0 6px 24px rgba(249, 115, 22, 0.4); }
+  .bookmarklet-drag:active { cursor: grabbing; transform: scale(0.98); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Grok Token Manager</h1>
+  <p class="subtitle">提取 SSO Cookie &rarr; 导入 grok2api</p>
+
+  <!-- Method 1: Bookmarklet -->
+  <div class="card">
+    <h2>方法一：一键导入 <span class="badge">推荐</span></h2>
+
+    <div class="steps" style="margin-bottom:16px;">
+      <p style="color:#fff; font-size:14px; margin-bottom:12px; font-weight:500;">三步搞定：</p>
+      <ol>
+        <li>选择账号类型，把下面的按钮 <strong>拖到浏览器书签栏</strong></li>
+        <li><strong>点击按钮</strong> 跳转到 grok.com，登录你的账号</li>
+        <li>在 grok.com 上点击 <strong>书签栏里的按钮</strong> —— 自动完成！</li>
+      </ol>
+    </div>
+
+    <div class="pool-select" id="bmPoolSelect">
+      <label><input type="radio" name="bmPool" value="ssoSuper" checked onchange="updateBookmarklet()"><span>SuperGrok (付费)</span></label>
+      <label><input type="radio" name="bmPool" value="ssoBasic" onchange="updateBookmarklet()"><span>Basic (免费)</span></label>
+    </div>
+
+    <div style="text-align:center; padding:16px 0;">
+      <a id="bookmarkletBtn"
+         href="javascript:void(0)"
+         class="bookmarklet-drag"
+         onclick="event.preventDefault();window.open('https://grok.com','_blank');"
+         title="拖动到书签栏">🔑 导入 Grok Token</a>
+      <p style="color:#666; font-size:12px; margin-top:10px;">⬆ 拖到书签栏保存 | 点击直接跳转 grok.com</p>
+    </div>
+  </div>
+
+  <!-- Method 2: Paste -->
+  <div class="card">
+    <h2>方法二：手动粘贴</h2>
+    <p style="color:#888; font-size:13px; margin-bottom:12px;">
+      粘贴 Cookie-Editor 导出的 JSON，或直接粘贴 SSO token 字符串
+    </p>
+    <textarea id="pasteArea" placeholder='粘贴以下任一格式：&#10;1. Cookie-Editor 导出的 JSON 数组&#10;2. 纯 SSO token (eyJ0eXAi...)&#10;3. cookie 字符串 (sso=eyJ0eXAi...;other=...)'></textarea>
+    <div class="pool-select">
+      <label><input type="radio" name="pool" value="ssoSuper" checked><span>SuperGrok (付费)</span></label>
+      <label><input type="radio" name="pool" value="ssoBasic"><span>Basic (免费)</span></label>
+    </div>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="importFromPaste()">导入</button>
+      <button class="btn-secondary" onclick="exportTokens()">导出到文本框</button>
+      <button class="btn-secondary" onclick="exportToFile('json')">导出 JSON</button>
+      <button class="btn-secondary" onclick="exportToFile('txt')">导出 TXT</button>
+      <button class="btn-secondary" onclick="document.getElementById('pasteArea').value=''">清空</button>
+    </div>
+    <div id="pasteMsg" class="msg"></div>
+  </div>
+
+  <!-- Token List -->
+  <div class="card">
+    <h2>当前 Token <button class="btn-secondary refresh-btn" onclick="loadTokens()">刷新</button></h2>
+    <div id="tokenList"><div class="empty">加载中...</div></div>
+  </div>
+
+  <!-- Quick Test (暂时隐藏)
+  <div class="card">
+    <h2>快速测试</h2>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="testChat()">测试聊天</button>
+      <button class="btn-secondary" onclick="testImage()">测试生图</button>
+      <button class="btn-secondary" onclick="testVideo()">测试生视频</button>
+    </div>
+    <div id="testMsg" class="msg"></div>
+  </div>
+  -->
+</div>
+
+<script>
+const API = location.origin;
+const ADMIN_PWD = 'grok2api';
+
+// === Auto-import from URL hash (triggered by extension redirect) ===
+function checkUrlImport() {
+  const hash = location.hash;
+  if (!hash.includes('import=')) return;
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get('import');
+  const pool = params.get('pool') || 'ssoSuper';
+  if (!token) return;
+
+  history.replaceState(null, '', location.pathname);
+
+  const msgEl = document.getElementById('pasteMsg');
+  showMsg(msgEl, 'info', '正在自动导入...');
+  importTokens([{ token }], pool).then(result => {
+    showMsg(msgEl, 'success', `自动导入成功! &rarr; ${pool}`);
+    loadTokens();
+  }).catch(e => {
+    showMsg(msgEl, 'error', '自动导入失败: ' + e.message);
+    document.getElementById('pasteArea').value = token;
+  });
+}
+
+// === Parse tokens from various input formats ===
+function parseTokens(input) {
+  input = input.trim();
+  const tokens = [];
+
+  if (input.startsWith('[')) {
+    try {
+      const arr = JSON.parse(input);
+      for (const c of arr) {
+        if (c.name === 'sso' && c.value) tokens.push({ token: c.value });
+      }
+      return tokens;
+    } catch(e) {}
+  }
+
+  if (input.startsWith('{')) {
+    try {
+      const obj = JSON.parse(input);
+      if (obj.accounts) {
+        for (const t of obj.accounts) tokens.push({ token: typeof t === 'string' ? t : t.token });
+        return tokens;
+      }
+    } catch(e) {}
+  }
+
+  if (input.includes('sso=')) {
+    for (const p of input.split(';')) {
+      const kv = p.trim().split('=');
+      if (kv[0] === 'sso') tokens.push({ token: kv.slice(1).join('=') });
+    }
+    if (tokens.length) return tokens;
+  }
+
+  const lines = input.split('\n').map(l => l.trim()).filter(l => l.length > 20);
+  for (const line of lines) {
+    const clean = line.replace(/^sso=/, '').replace(/;.*$/, '');
+    if (clean.startsWith('eyJ') || clean.length > 50) tokens.push({ token: clean });
+  }
+  return tokens;
+}
+
+// === Import tokens ===
+async function importTokens(tokens, pool) {
+  const tokenList = tokens.map((t, i) => ({
+    token: t.token,
+    status: 'active',
+    quota: pool === 'ssoSuper' ? 140 : 80,
+    tags: [],
+    note: `auto-${new Date().toISOString().slice(0, 10)}-${i + 1}`
+  }));
+
+  const resp = await fetch(`${API}/v1/admin/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_PWD}` },
+    body: JSON.stringify({ [pool]: tokenList })
+  });
+  return await resp.json();
+}
+
+// === Paste import ===
+async function importFromPaste() {
+  const input = document.getElementById('pasteArea').value;
+  const msgEl = document.getElementById('pasteMsg');
+  if (!input.trim()) { showMsg(msgEl, 'error', '请先粘贴内容'); return; }
+
+  const tokens = parseTokens(input);
+  if (!tokens.length) { showMsg(msgEl, 'error', '未找到有效的 SSO token'); return; }
+
+  const pool = document.querySelector('input[name="pool"]:checked').value;
+  try {
+    await importTokens(tokens, pool);
+    showMsg(msgEl, 'success', `导入成功! ${tokens.length} 个 token &rarr; ${pool}`);
+    document.getElementById('pasteArea').value = '';
+    loadTokens();
+  } catch(e) { showMsg(msgEl, 'error', '导入失败: ' + e.message); }
+}
+
+// === Load current tokens ===
+async function loadTokens() {
+  const el = document.getElementById('tokenList');
+  try {
+    const resp = await fetch(`${API}/v1/admin/tokens`, {
+      headers: { 'Authorization': `Bearer ${ADMIN_PWD}` }
+    });
+    const data = await resp.json();
+    let html = '';
+
+    for (const [poolName, tokens] of Object.entries(data)) {
+      if (!Array.isArray(tokens)) continue;
+      for (const t of tokens) {
+        const isActive = t.status === 'active';
+        const shortToken = t.token.slice(0, 20) + '...' + t.token.slice(-8);
+        const usedAt = t.last_used_at ? new Date(t.last_used_at).toLocaleString() : '未使用';
+        html += `
+          <div class="token-item">
+            <div class="dot ${isActive ? 'active' : 'inactive'}"></div>
+            <div class="info">
+              <div class="top">
+                <span class="note">${t.note || 'unnamed'}</span>
+                <span class="pool-tag">${poolName}</span>
+              </div>
+              <div class="bottom">${shortToken}</div>
+            </div>
+            <div class="stats">
+              用 ${t.use_count || 0} 次 | 失败 ${t.fail_count || 0}<br>
+              ${usedAt}
+            </div>
+            <button class="btn-danger" onclick="deleteToken('${poolName}','${t.token.slice(0,30)}')">删除</button>
+          </div>`;
+      }
+    }
+    el.innerHTML = html || '<div class="empty">暂无 token，请先导入</div>';
+  } catch(e) {
+    el.innerHTML = `<div class="empty" style="color:#f87171">连接失败: ${e.message}<br>确保 grok2api 在 ${API} 运行中</div>`;
+  }
+}
+
+// === Delete token ===
+async function deleteToken(pool, tokenPrefix) {
+  if (!confirm('确定删除这个 token?')) return;
+  try {
+    const resp = await fetch(`${API}/v1/admin/tokens`, {
+      headers: { 'Authorization': `Bearer ${ADMIN_PWD}` }
+    });
+    const data = await resp.json();
+    const tokens = data[pool] || [];
+    const filtered = tokens.filter(t => !t.token.startsWith(tokenPrefix));
+    if (filtered.length === tokens.length) { alert('Token not found'); return; }
+
+    const payload = {};
+    for (const [p, tList] of Object.entries(data)) {
+      if (!Array.isArray(tList)) continue;
+      payload[p] = (p === pool) ? filtered : tList;
+    }
+    await fetch(`${API}/v1/admin/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_PWD}` },
+      body: JSON.stringify(payload)
+    });
+    loadTokens();
+  } catch(e) { alert('删除失败: ' + e.message); }
+}
+
+// === Export tokens ===
+async function exportTokens() {
+  try {
+    const resp = await fetch(`${API}/v1/admin/tokens`, {
+      headers: { 'Authorization': `Bearer ${ADMIN_PWD}` }
+    });
+    const data = await resp.json();
+    const exportData = [];
+    for (const [pool, tokens] of Object.entries(data)) {
+      if (!Array.isArray(tokens)) continue;
+      for (const t of tokens) exportData.push({ pool, token: t.token, status: t.status, note: t.note || '' });
+    }
+    if (!exportData.length) { alert('没有 token 可导出'); return; }
+    const json = JSON.stringify(exportData, null, 2);
+    document.getElementById('pasteArea').value = json;
+    try { await navigator.clipboard.writeText(json); } catch(e) {}
+    showMsg(document.getElementById('pasteMsg'), 'success', `已导出 ${exportData.length} 个 token（已复制到剪贴板）`);
+  } catch(e) { alert('导出失败: ' + e.message); }
+}
+
+// === Export to file ===
+async function exportToFile(format) {
+  try {
+    const resp = await fetch(`${API}/v1/admin/tokens`, {
+      headers: { 'Authorization': `Bearer ${ADMIN_PWD}` }
+    });
+    const data = await resp.json();
+    let content, filename, mime;
+
+    if (format === 'json') {
+      const exportData = {};
+      for (const [pool, tokens] of Object.entries(data)) {
+        if (!Array.isArray(tokens)) continue;
+        exportData[pool] = tokens.map(t => ({ token: t.token, status: t.status, note: t.note || '' }));
+      }
+      content = JSON.stringify(exportData, null, 2);
+      filename = `grok-tokens-${new Date().toISOString().slice(0,10)}.json`;
+      mime = 'application/json';
+    } else {
+      const lines = [];
+      for (const [pool, tokens] of Object.entries(data)) {
+        if (!Array.isArray(tokens)) continue;
+        lines.push(`=== ${pool} (${tokens.length}) ===`);
+        tokens.forEach((t, i) => lines.push(`${i+1}. ${t.token}`));
+        lines.push('');
+      }
+      content = lines.join('\n');
+      filename = `grok-tokens-${new Date().toISOString().slice(0,10)}.txt`;
+      mime = 'text/plain';
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showMsg(document.getElementById('pasteMsg'), 'success', `已下载 ${filename}`);
+  } catch(e) { alert('导出失败: ' + e.message); }
+}
+
+// === Utils ===
+function showMsg(el, type, html) {
+  el.className = 'msg ' + type;
+  el.innerHTML = html;
+  el.style.display = 'block';
+  if (type !== 'info') setTimeout(() => { el.style.display = 'none'; }, 8000);
+}
+
+// === Bookmarklet generator ===
+function updateBookmarklet() {
+  const pool = document.querySelector('input[name="bmPool"]:checked').value;
+  const managerUrl = location.origin + '/static/public/pages/token-manager.html';
+  const code = `javascript:void((function(){var m=document.cookie.match(/sso=([^;]+)/);if(!m){alert('未找到 SSO Token!\\n请先登录 grok.com');return;}window.open('${managerUrl}#import='+encodeURIComponent(m[1])+'&pool=${pool}');})())`;
+  document.getElementById('bookmarkletBtn').href = code;
+}
+
+// === Init ===
+loadTokens();
+checkUrlImport();
+updateBookmarklet();
+</script>
+</body>
+</html>

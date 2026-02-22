@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 20px; }
+  h1 { font-size: 18px; color: #fff; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 16px; }
+
+  .server-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .server-row input { flex: 1; background: #111; border: 1px solid #333; border-radius: 8px; padding: 8px 12px; color: #e0e0e0; font-size: 13px; }
+  .server-row input:focus { outline: none; border-color: #f97316; }
+
+  .pool-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .pool-row label { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+  .pool-row label:has(input:checked) { border-color: #f97316; background: #1a1000; }
+  .pool-row label:has(input:checked) span { color: #f97316; }
+  .pool-row input { display: none; }
+
+  .btn { width: 100%; padding: 12px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn-import { background: linear-gradient(135deg, #f97316, #ef4444); color: #fff; margin-bottom: 8px; }
+  .btn-import:hover { opacity: 0.9; transform: scale(1.01); }
+  .btn-import:active { transform: scale(0.98); }
+  .btn-import:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-manage { background: #222; color: #aaa; font-size: 13px; font-weight: 400; padding: 10px; }
+  .btn-manage:hover { background: #333; color: #fff; }
+
+  .status { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; line-height: 1.5; }
+  .status.success { display: block; background: #052e16; color: #86efac; border: 1px solid #166534; }
+  .status.error { display: block; background: #2a0a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+  .status.loading { display: block; background: #1e1b4b; color: #a5b4fc; border: 1px solid #3730a3; }
+
+  .token-count { text-align: center; font-size: 12px; color: #666; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>Grok Token Importer</h1>
+  <p class="subtitle">从 grok.com 一键提取 SSO Token</p>
+
+  <div class="server-row">
+    <input type="text" id="serverUrl" value="https://grok2api.fly.dev" placeholder="grok2api 服务器地址">
+  </div>
+
+  <div class="pool-row">
+    <label><input type="radio" name="pool" value="ssoSuper" checked><span>SuperGrok (付费)</span></label>
+    <label><input type="radio" name="pool" value="ssoBasic"><span>Basic (免费)</span></label>
+  </div>
+
+  <button class="btn btn-import" id="importBtn" onclick="doImport()">一键导入 Token</button>
+  <button class="btn btn-manage" id="manageBtn" onclick="openManager()">打开 Token 管理页</button>
+
+  <div class="status" id="status"></div>
+  <div class="token-count" id="tokenCount"></div>
+
+<script src="popup.js"></script>
+</body>
+</html>
