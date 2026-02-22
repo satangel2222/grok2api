@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 import base64
 import binascii
 import time
+import uuid
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -16,6 +17,7 @@ from app.services.grok.services.image import ImageGenerationService
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
 from app.services.grok.services.video import VideoService
+from app.services.grok.utils.response import make_chat_response
 from app.services.token import get_token_manager
 from app.core.config import get_config
 from app.core.exceptions import ValidationException, AppException, ErrorType
@@ -557,6 +559,7 @@ async def chat_completions(request: ChatCompletionRequest):
             n=n,
             response_format=response_format,
             stream=bool(is_stream),
+            chat_format=True,
         )
 
         if result.stream:
@@ -566,18 +569,9 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        data = [{response_field: img} for img in result.data]
+        content = result.data[0] if result.data else ""
         return JSONResponse(
-            content={
-                "created": int(time.time()),
-                "data": data,
-                "usage": {
-                    "total_tokens": 0,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
-                },
-            }
+            content=make_chat_response(request.model, content)
         )
 
     if model_info and model_info.is_image:
@@ -628,6 +622,7 @@ async def chat_completions(request: ChatCompletionRequest):
             size=size,
             aspect_ratio=aspect_ratio,
             stream=bool(is_stream),
+            chat_format=True,
         )
 
         if result.stream:
@@ -637,19 +632,10 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        data = [{response_field: img} for img in result.data]
-        usage = result.usage_override or {
-            "total_tokens": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
-        }
+        content = result.data[0] if result.data else ""
+        usage = result.usage_override
         return JSONResponse(
-            content={
-                "created": int(time.time()),
-                "data": data,
-                "usage": usage,
-            }
+            content=make_chat_response(request.model, content, usage=usage)
         )
 
     if model_info and model_info.is_video:
