@@ -61,6 +61,21 @@ class VideoService:
     def __init__(self):
         self.timeout = None
 
+    @staticmethod
+    def _mode_flag(preset: str) -> str:
+        mode_map = {
+            "fun": "--mode=extremely-crazy",
+            "normal": "--mode=normal",
+            "spicy": "--mode=extremely-spicy-or-crazy",
+        }
+        return mode_map.get(preset, "--mode=custom")
+
+    @classmethod
+    def _build_message(cls, prompt: str, preset: str) -> str:
+        prompt_value = (prompt or "").strip()
+        mode_flag = cls._mode_flag(preset)
+        return f"{prompt_value} {mode_flag}".strip()
+
     async def create_post(
         self,
         token: str,
@@ -115,17 +130,12 @@ class VideoService:
         preset: str = "normal",
     ) -> AsyncGenerator[bytes, None]:
         """Generate video."""
+        prompt_value = (prompt or "").strip()
         logger.info(
-            f"Video generation: prompt='{prompt[:50]}...', ratio={aspect_ratio}, length={video_length}s, preset={preset}"
+            f"Video generation: prompt='{prompt_value[:50]}...', ratio={aspect_ratio}, length={video_length}s, preset={preset}"
         )
-        post_id = await self.create_post(token, prompt)
-        mode_map = {
-            "fun": "--mode=extremely-crazy",
-            "normal": "--mode=normal",
-            "spicy": "--mode=extremely-spicy-or-crazy",
-        }
-        mode_flag = mode_map.get(preset, "--mode=custom")
-        message = f"{prompt} {mode_flag}"
+        post_id = await self.create_post(token, prompt_value)
+        message = self._build_message(prompt_value, preset)
         model_config_override = {
             "modelMap": {
                 "videoGenModelConfig": {
@@ -175,17 +185,12 @@ class VideoService:
         preset: str = "normal",
     ) -> AsyncGenerator[bytes, None]:
         """Generate video from image."""
+        prompt_value = (prompt or "").strip()
         logger.info(
-            f"Image to video: prompt='{prompt[:50]}...', image={image_url[:80]}"
+            f"Image to video: prompt='{prompt_value[:50]}...', image={image_url[:80]}"
         )
         post_id = await self.create_image_post(token, image_url)
-        mode_map = {
-            "fun": "--mode=extremely-crazy",
-            "normal": "--mode=normal",
-            "spicy": "--mode=extremely-spicy-or-crazy",
-        }
-        mode_flag = mode_map.get(preset, "--mode=custom")
-        message = f"{prompt} {mode_flag}"
+        message = self._build_message(prompt_value, preset)
         model_config_override = {
             "modelMap": {
                 "videoGenModelConfig": {
@@ -224,6 +229,64 @@ class VideoService:
 
         return _stream()
 
+    async def generate_from_post(
+        self,
+        token: str,
+        prompt: str,
+        parent_post_id: str,
+        aspect_ratio: str = "3:2",
+        video_length: int = 6,
+        resolution: str = "480p",
+        preset: str = "normal",
+    ) -> AsyncGenerator[bytes, None]:
+        """Generate video from an existing media post id."""
+        prompt_value = (prompt or "").strip()
+        post_id = (parent_post_id or "").strip()
+        if not post_id:
+            raise ValidationException("parent_post_id is required")
+
+        logger.info(
+            f"Post to video: prompt='{prompt_value[:50]}...', parent_post_id={post_id}"
+        )
+        message = self._build_message(prompt_value, preset)
+        model_config_override = {
+            "modelMap": {
+                "videoGenModelConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "parentPostId": post_id,
+                    "resolutionName": resolution,
+                    "videoLength": video_length,
+                }
+            }
+        }
+
+        async def _stream():
+            session = _new_session()
+            try:
+                async with _get_video_semaphore():
+                    stream_response = await AppChatReverse.request(
+                        session,
+                        token,
+                        message=message,
+                        model="grok-3",
+                        tool_overrides={"videoGen": True},
+                        model_config_override=model_config_override,
+                    )
+                    logger.info(f"Video generation started: parent_post_id={post_id}")
+                    async for line in stream_response:
+                        yield line
+            except Exception as e:
+                try:
+                    await session.close()
+                except Exception:
+                    pass
+                logger.error(f"Video generation error: {e}")
+                if isinstance(e, AppException):
+                    raise
+                raise UpstreamException(f"Video generation error: {str(e)}")
+
+        return _stream()
+
     @staticmethod
     async def completions(
         model: str,
@@ -234,6 +297,7 @@ class VideoService:
         video_length: int = 6,
         resolution: str = "480p",
         preset: str = "normal",
+        parent_post_id: Optional[str] = None,
     ):
         """Video generation entrypoint."""
         # Get token via intelligent routing.
@@ -254,6 +318,7 @@ class VideoService:
         from app.services.grok.utils.upload import UploadService
 
         prompt, file_attachments, image_attachments = MessageExtractor.extract(messages)
+        parent_post_id = (parent_post_id or "").strip()
 
         for attempt in range(max_token_retries):
             # Select token based on video requirements and pool candidates.
@@ -299,7 +364,17 @@ class VideoService:
 
                 # Generate video.
                 service = VideoService()
-                if image_url:
+                if parent_post_id:
+                    response = await service.generate_from_post(
+                        token,
+                        prompt,
+                        parent_post_id,
+                        aspect_ratio,
+                        video_length,
+                        resolution,
+                        preset,
+                    )
+                elif image_url:
                     response = await service.generate_from_image(
                         token,
                         prompt,

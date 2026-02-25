@@ -50,6 +50,7 @@ async def _new_session(
     resolution_name: str,
     preset: str,
     image_url: Optional[str],
+    parent_post_id: Optional[str],
     reasoning_effort: Optional[str],
 ) -> str:
     task_id = uuid.uuid4().hex
@@ -63,6 +64,7 @@ async def _new_session(
             "resolution_name": resolution_name,
             "preset": preset,
             "image_url": image_url,
+            "parent_post_id": parent_post_id,
             "reasoning_effort": reasoning_effort,
             "created_at": now,
         }
@@ -130,13 +132,23 @@ class VideoStartRequest(BaseModel):
     resolution_name: Optional[str] = "480p"
     preset: Optional[str] = "normal"
     image_url: Optional[str] = None
+    parent_post_id: Optional[str] = None
+    parentPostId: Optional[str] = None
     reasoning_effort: Optional[str] = None
 
 
 @router.post("/video/start", dependencies=[Depends(verify_public_key)])
 async def public_video_start(data: VideoStartRequest):
     prompt = (data.prompt or "").strip()
-    if not prompt:
+    image_url = (data.image_url or "").strip() or None
+    parent_post_id = (data.parent_post_id or data.parentPostId or "").strip() or None
+
+    if image_url and parent_post_id:
+        raise HTTPException(
+            status_code=400,
+            detail="image_url and parent_post_id cannot both be set",
+        )
+    if not prompt and not image_url and not parent_post_id:
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
     aspect_ratio = _normalize_ratio(data.aspect_ratio)
@@ -166,7 +178,6 @@ async def public_video_start(data: VideoStartRequest):
             detail="preset must be one of ['fun','normal','spicy','custom']",
         )
 
-    image_url = (data.image_url or "").strip() or None
     if image_url:
         _validate_image_url(image_url)
 
@@ -186,6 +197,7 @@ async def public_video_start(data: VideoStartRequest):
         resolution_name,
         preset,
         image_url,
+        parent_post_id,
         reasoning_effort,
     )
     return {"task_id": task_id, "aspect_ratio": aspect_ratio}
@@ -203,6 +215,7 @@ async def public_video_sse(request: Request, task_id: str = Query("")):
     resolution_name = str(session.get("resolution_name") or "480p")
     preset = str(session.get("preset") or "normal")
     image_url = session.get("image_url")
+    parent_post_id = session.get("parent_post_id")
     reasoning_effort = session.get("reasoning_effort")
 
     async def event_stream():
@@ -240,6 +253,7 @@ async def public_video_sse(request: Request, task_id: str = Query("")):
                 video_length=video_length,
                 resolution=resolution_name,
                 preset=preset,
+                parent_post_id=parent_post_id,
             )
 
             async for chunk in stream:
