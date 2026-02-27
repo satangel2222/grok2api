@@ -350,17 +350,21 @@ class VideoService:
                 # Handle image attachments.
                 image_url = None
                 if image_attachments:
-                    upload_service = UploadService()
-                    try:
-                        for attach_data in image_attachments:
+                    for attach_data in image_attachments:
+                        if isinstance(attach_data, str) and attach_data.startswith("https://assets.grok.com/"):
+                            image_url = attach_data
+                            logger.info(f"Image already on assets.grok.com, skipping upload: {image_url}")
+                            break
+                        upload_service = UploadService()
+                        try:
                             _, file_uri = await upload_service.upload_file(
                                 attach_data, token
                             )
                             image_url = f"https://assets.grok.com/{file_uri}"
                             logger.info(f"Image uploaded for video: {image_url}")
-                            break
-                    finally:
-                        await upload_service.close()
+                        finally:
+                            await upload_service.close()
+                        break
 
                 # Generate video.
                 service = VideoService()
