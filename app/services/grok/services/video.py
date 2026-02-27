@@ -214,6 +214,8 @@ class VideoService:
             }
         }
 
+        logger.info(f"i2v config: preset={preset!r}, mode_value={self._mode_value(preset)!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
+
         async def _stream():
             session = _new_session()
             try:
