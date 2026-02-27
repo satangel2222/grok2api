@@ -641,6 +641,12 @@ class VideoStreamProcessor(BaseProcessor):
                             yield self._sse(rendered)
 
                             logger.info(f"Video generated: {video_url}")
+                        else:
+                            # Log the entire response if it failed
+                            error_msg = f"\n[Error] Video generation reached 100% but no URL was found.\nDetails: {orjson.dumps(video_resp).decode()}\n"
+                            logger.error(f"Video URL missing at 100%: {video_resp}")
+                            yield self._sse(error_msg)
+                            
                     continue
 
             if self.think_opened:

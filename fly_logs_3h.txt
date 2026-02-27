@@ -1,0 +1,17 @@
+﻿Usage:
+  fly.exe logs [flags]
+
+Flags:
+  -a, --app string       Application name
+  -c, --config string    Path to application configuration file
+  -h, --help             help for logs
+  -j, --json             JSON output
+      --machine string   Filter by machine ID
+  -n, --no-tail          Do not continually stream logs
+  -r, --region string    The target region (see 'flyctl platform regions')
+
+Global Flags:
+  -t, --access-token string   Fly API Access Token
+      --debug                 Print additional logs and traces
+      --verbose               Verbose output
+
