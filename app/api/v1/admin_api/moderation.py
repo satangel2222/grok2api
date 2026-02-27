@@ -33,7 +33,6 @@ class ModerationTestResponse(BaseModel):
 @router.post(
     "/test-moderation",
     response_model=ModerationTestResponse,
-    dependencies=[Depends(verify_app_key)],
 )
 async def test_moderation(data: ModerationTestRequest):
     """Test if a token's NSFW video generation is moderated."""

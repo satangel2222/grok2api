@@ -47,7 +47,6 @@ def test_token(token: str, idx: int, total: int) -> dict:
             data=data,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {APP_KEY}",
             },
         )
         
