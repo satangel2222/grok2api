@@ -146,12 +146,19 @@ class ImageGenerationService:
                 )
             except UpstreamException as e:
                 last_error = e
-                if rate_limited(e):
-                    await token_mgr.mark_rate_limited(current_token)
-                    logger.warning(
-                        f"Token {current_token[:10]}... rate limited (429), "
-                        f"trying next token (attempt {attempt + 1}/{max_token_retries})"
-                    )
+                is_censored = e.details and e.details.get("error_code") == "censored_mosaic"
+                if rate_limited(e) or is_censored:
+                    if rate_limited(e):
+                        await token_mgr.mark_rate_limited(current_token)
+                        logger.warning(
+                            f"Token {current_token[:10]}... rate limited (429), "
+                            f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                        )
+                    else:
+                        logger.warning(
+                            f"Token {current_token[:10]}... produced censored mosaics, "
+                            f"trying next token (attempt {attempt + 1}/{max_token_retries})"
+                        )
                     continue
                 raise
 
@@ -249,6 +256,8 @@ class ImageGenerationService:
         for batch in results:
             if isinstance(batch, Exception):
                 logger.warning(f"WS batch failed: {batch}")
+                if getattr(batch, "details", {}) and getattr(batch, "details", {}).get("error_code") == "censored_mosaic":
+                    raise batch
                 continue
             for img in batch:
                 if img not in seen:
@@ -377,11 +386,23 @@ class ImageWSBaseProcessor(BaseProcessor):
     def _pick_best(self, existing: Optional[Dict], incoming: Dict) -> Dict:
         if not existing:
             return incoming
+        in_size = incoming.get("blob_size", 0)
+        ex_size = existing.get("blob_size", 0)
+
+        # Anti-Mosaic Filter: if incoming is 'final' but significantly smaller than an existing 'medium'
+        # it is highly likely that the final image is a heavily censored/mosaic version (~24KB).
         if incoming.get("is_final") and not existing.get("is_final"):
+            if in_size < 100000 and ex_size > in_size * 2:
+                # Keep the existing high-res medium image, but upgrade its status to final
+                existing["is_final"] = True
+                existing["stage"] = "final"
+                return existing
             return incoming
+
         if existing.get("is_final") and not incoming.get("is_final"):
             return existing
-        if incoming.get("blob_size", 0) > existing.get("blob_size", 0):
+
+        if in_size > ex_size:
             return incoming
         return existing
 
@@ -648,9 +669,18 @@ class ImageWSCollectProcessor(ImageWSBaseProcessor):
                 continue
             images[image_id] = self._pick_best(images.get(image_id), item)
 
+        valid_images = [img for img in images.values() if img.get("blob_size", 0) > 100000]
+
+        # Anti-Mosaic: If nothing passed the 100KB test but we got images, Grok heavily censored it!
+        if images and not valid_images:
+            raise UpstreamException(
+                "All generated images were censored mosaics", 
+                details={"mosaic": True, "error_code": "censored_mosaic"}
+            )
+
         selected = sorted(
-            images.values(),
-            key=lambda x: (x.get("is_final", False), x.get("blob_size", 0)),
+            valid_images,
+            key=lambda x: x.get("blob_size", 0),  # ANTI-MOSAIC: pure-size sorting
             reverse=True,
         )
         if self.n:
