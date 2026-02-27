@@ -70,6 +70,16 @@ class VideoService:
         }
         return mode_map.get(preset, "--mode=custom")
 
+    @staticmethod
+    def _mode_value(preset: str) -> str:
+        """Return raw mode value for videoGenModelConfig."""
+        mode_map = {
+            "fun": "extremely-crazy",
+            "normal": "normal",
+            "spicy": "extremely-spicy-or-crazy",
+        }
+        return mode_map.get(preset, "custom")
+
     @classmethod
     def _build_message(cls, prompt: str, preset: str) -> str:
         prompt_value = (prompt or "").strip()
@@ -143,6 +153,7 @@ class VideoService:
                     "parentPostId": post_id,
                     "resolutionName": resolution_name,
                     "videoLength": video_length,
+                    "mode": self._mode_value(preset),
                 }
             }
         }
@@ -198,6 +209,7 @@ class VideoService:
                     "parentPostId": post_id,
                     "resolutionName": resolution,
                     "videoLength": video_length,
+                    "mode": self._mode_value(preset),
                 }
             }
         }
@@ -256,6 +268,7 @@ class VideoService:
                     "parentPostId": post_id,
                     "resolutionName": resolution,
                     "videoLength": video_length,
+                    "mode": self._mode_value(preset),
                 }
             }
         }
