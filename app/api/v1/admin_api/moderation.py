@@ -31,7 +31,7 @@ class ModerationTestResponse(BaseModel):
 
 
 @router.post(
-    "/admin/test-moderation",
+    "/test-moderation",
     response_model=ModerationTestResponse,
     dependencies=[Depends(verify_app_key)],
 )
