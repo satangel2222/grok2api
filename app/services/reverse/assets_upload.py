@@ -90,7 +90,7 @@ class AssetsUploadReverse:
                     status = e.details["status"]
                 else:
                     status = getattr(e, "status_code", None)
-                if status == 401:
+                if status in (401, 403):
                     try:
                         await TokenService.record_fail(token, status, "assets_upload_auth_failed")
                     except Exception:
