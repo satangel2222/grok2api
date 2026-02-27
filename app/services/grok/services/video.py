@@ -592,7 +592,14 @@ class VideoStreamProcessor(BaseProcessor):
                     if progress == 100:
                         video_url = video_resp.get("videoUrl", "")
                         thumbnail_url = video_resp.get("thumbnailImageUrl", "")
-                        logger.info(f"Video progress 100%: videoUrl={video_url!r}, thumbnail={thumbnail_url!r}, raw_keys={list(video_resp.keys())}")
+                        video_id = video_resp.get("videoId", "")
+                        video_post_id = video_resp.get("videoPostId", "")
+                        moderated = video_resp.get("moderated", None)
+                        logger.info(
+                            f"Video progress 100%: videoUrl={video_url!r}, videoId={video_id!r}, "
+                            f"videoPostId={video_post_id!r}, moderated={moderated!r}, "
+                            f"thumbnail={thumbnail_url!r}, raw={orjson.dumps(video_resp).decode()[:500]}"
+                        )
 
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
