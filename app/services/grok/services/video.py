@@ -616,7 +616,7 @@ class VideoStreamProcessor(BaseProcessor):
                             )
                             if m:
                                 user_id = m.group(1)
-                                video_url = f"https://assets.grok.com/users/{user_id}/{vid}/content"
+                                video_url = f"https://assets.grok.com/users/{user_id}/{vid}/generated_video"
                                 logger.info(
                                     f"Constructed video URL from videoId: {video_url}"
                                 )
@@ -754,7 +754,7 @@ class VideoCollectProcessor(BaseProcessor):
                             if vid and image_ref:
                                 m = re.match(r"https://assets\.grok\.com/users/([^/]+)/", image_ref)
                                 if m:
-                                    video_url = f"https://assets.grok.com/users/{m.group(1)}/{vid}/content"
+                                    video_url = f"https://assets.grok.com/users/{m.group(1)}/{vid}/generated_video"
                                     logger.info(f"Constructed video URL from videoId: {video_url}")
 
                         if video_url:
