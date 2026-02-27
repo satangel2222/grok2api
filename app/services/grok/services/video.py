@@ -597,11 +597,29 @@ class VideoStreamProcessor(BaseProcessor):
                         video_id = video_resp.get("videoId", "")
                         video_post_id = video_resp.get("videoPostId", "")
                         moderated = video_resp.get("moderated", None)
+                        image_ref = video_resp.get("imageReference", "")
                         logger.info(
                             f"Video progress 100%: videoUrl={video_url!r}, videoId={video_id!r}, "
-                            f"videoPostId={video_post_id!r}, moderated={moderated!r}, "
-                            f"thumbnail={thumbnail_url!r}, raw={orjson.dumps(video_resp).decode()[:500]}"
+                            f"videoPostId={video_post_id!r}, moderated={moderated!r}"
                         )
+
+                        # Fallback: when moderated=true, videoUrl is cleared
+                        # but videoId + imageReference are preserved.
+                        # Construct URL from imageReference pattern:
+                        #   https://assets.grok.com/users/{userId}/{postId}/content
+                        if not video_url and (video_id or video_post_id) and image_ref:
+                            vid = video_id or video_post_id
+                            # Extract userId from imageReference
+                            m = re.match(
+                                r"https://assets\.grok\.com/users/([^/]+)/",
+                                image_ref,
+                            )
+                            if m:
+                                user_id = m.group(1)
+                                video_url = f"https://assets.grok.com/users/{user_id}/{vid}/content"
+                                logger.info(
+                                    f"Constructed video URL from videoId: {video_url}"
+                                )
 
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
@@ -728,6 +746,16 @@ class VideoCollectProcessor(BaseProcessor):
                         response_id = resp.get("responseId", "")
                         video_url = video_resp.get("videoUrl", "")
                         thumbnail_url = video_resp.get("thumbnailImageUrl", "")
+
+                        # Fallback: construct URL from videoId when moderated
+                        if not video_url:
+                            vid = video_resp.get("videoId", "") or video_resp.get("videoPostId", "")
+                            image_ref = video_resp.get("imageReference", "")
+                            if vid and image_ref:
+                                m = re.match(r"https://assets\.grok\.com/users/([^/]+)/", image_ref)
+                                if m:
+                                    video_url = f"https://assets.grok.com/users/{m.group(1)}/{vid}/content"
+                                    logger.info(f"Constructed video URL from videoId: {video_url}")
 
                         if video_url:
                             if self.upscale_on_finish:
