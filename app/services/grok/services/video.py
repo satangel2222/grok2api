@@ -81,14 +81,15 @@ class VideoService:
         return mode_map.get(preset, "custom")
 
     @classmethod
-    def _build_message(cls, prompt: str, preset: str) -> str:
+    async def _build_message(cls, prompt: str, preset: str, nsfw_rewrite: bool = False) -> str:
         prompt_value = (prompt or "").strip()
         mode_flag = cls._mode_flag(preset)
-        
-        # 自动脱敏：如果预设是 spicy 或 fun，强制替换提示词为艺术化/委婉描述以绕过审核
-        if preset in ["spicy", "fun"]:
-            prompt_value = "一位男士温柔接近镜头中的女性，开始轻柔抚摸和亲吻，二人进行亲密的韵律舞动，动作流畅而亲密。无音乐，无字幕。"
-            
+
+        # 可选：自动脱敏改写（需前端传入 true 或者全局配置为 true 才启用）
+        if preset in ("spicy", "fun") and (nsfw_rewrite or get_config("video.nsfw_rewrite")):
+            from app.services.grok.services.nsfw_rewriter import NsfwPromptRewriter
+            prompt_value = await NsfwPromptRewriter.rewrite(prompt_value, preset)
+
         return f"{prompt_value} {mode_flag}".strip()
 
     async def create_post(
@@ -143,14 +144,15 @@ class VideoService:
         video_length: int = 6,
         resolution_name: str = "480p",
         preset: str = "normal",
+        nsfw_rewrite: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Generate video."""
         prompt_value = (prompt or "").strip()
         logger.info(
-            f"Video generation: prompt='{prompt_value[:50]}...', ratio={aspect_ratio}, length={video_length}s, preset={preset}"
+            f"Video generation: prompt='{prompt_value[:50]}...', ratio={aspect_ratio}, length={video_length}s, preset={preset}, nsfw_rewrite={nsfw_rewrite}"
         )
         post_id = await self.create_post(token, prompt_value)
-        message = self._build_message(prompt_value, preset)
+        message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
         model_config_override = {
             "modelMap": {
                 "videoGenModelConfig": {
@@ -199,14 +201,15 @@ class VideoService:
         video_length: int = 6,
         resolution: str = "480p",
         preset: str = "normal",
+        nsfw_rewrite: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Generate video from image."""
         prompt_value = (prompt or "").strip()
         logger.info(
-            f"Image to video: prompt='{prompt_value[:50]}...', image={image_url[:80]}"
+            f"Image to video: prompt='{prompt_value[:50]}...', image={image_url[:80]}, nsfw_rewrite={nsfw_rewrite}"
         )
         post_id = await self.create_image_post(token, image_url)
-        message = self._build_message(prompt_value, preset)
+        message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
         model_config_override = {
             "modelMap": {
                 "videoGenModelConfig": {
@@ -257,6 +260,7 @@ class VideoService:
         video_length: int = 6,
         resolution: str = "480p",
         preset: str = "normal",
+        nsfw_rewrite: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Generate video from an existing media post id."""
         prompt_value = (prompt or "").strip()
@@ -265,9 +269,9 @@ class VideoService:
             raise ValidationException("parent_post_id is required")
 
         logger.info(
-            f"Post to video: prompt='{prompt_value[:50]}...', parent_post_id={post_id}"
+            f"Post to video: prompt='{prompt_value[:50]}...', parent_post_id={post_id}, nsfw_rewrite={nsfw_rewrite}"
         )
-        message = self._build_message(prompt_value, preset)
+        message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
         model_config_override = {
             "modelMap": {
                 "videoGenModelConfig": {
@@ -318,13 +322,14 @@ class VideoService:
         resolution: str = "480p",
         preset: str = "normal",
         parent_post_id: Optional[str] = None,
+        nsfw_rewrite: bool = False,
     ):
         """Video generation entrypoint."""
         # Get token via intelligent routing.
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
 
-        max_token_retries = int(get_config("retry.max_retry"))
+        max_token_retries = max(100, int(get_config("retry.max_retry")))
         last_error: Exception | None = None
 
         if reasoning_effort is None:
@@ -340,16 +345,91 @@ class VideoService:
         prompt, file_attachments, image_attachments = MessageExtractor.extract(messages)
         parent_post_id = (parent_post_id or "").strip()
 
-        for attempt in range(max_token_retries):
-            # Select token based on video requirements and pool candidates.
-            pool_candidates = ModelService.pool_candidates_for_model(model)
-            token_info = token_mgr.get_token_for_video(
-                resolution=resolution,
-                video_length=video_length,
-                pool_candidates=pool_candidates,
-            )
+        if is_stream:
+            async def _stream_generator():
+                nonlocal last_error
+                for attempt in range(max_token_retries):
+                    pool_candidates = ModelService.pool_candidates_for_model(model)
+                    token_info = token_mgr.get_token_for_video(
+                        resolution=resolution,
+                        video_length=video_length,
+                        pool_candidates=pool_candidates,
+                    )
 
-            if not token_info:
+                    if not token_info:
+                        if last_error:
+                            raise last_error
+                        raise AppException(
+                            message="No available tokens. Please try again later.",
+                            error_type=ErrorType.RATE_LIMIT.value,
+                            code="rate_limit_exceeded",
+                            status_code=429,
+                        )
+
+                    token = token_info.token
+                    if token.startswith("sso="):
+                        token = token[4:]
+                    pool_name = token_mgr.get_pool_name_for_token(token)
+                    should_upscale = resolution == "720p" and pool_name == BASIC_POOL_NAME
+
+                    try:
+                        image_url = None
+                        if image_attachments:
+                            for attach_data in image_attachments:
+                                if isinstance(attach_data, str) and attach_data.startswith("https://assets.grok.com/"):
+                                    image_url = attach_data
+                                    logger.info(f"Image already on assets.grok.com, skipping upload: {image_url}")
+                                    break
+                                upload_service = UploadService()
+                                try:
+                                    _, file_uri = await upload_service.upload_file(attach_data, token)
+                                    image_url = f"https://assets.grok.com/{file_uri}"
+                                    logger.info(f"Image uploaded for video: {image_url}")
+                                finally:
+                                    await upload_service.close()
+                                break
+
+                        service = VideoService()
+                        if parent_post_id:
+                            response = await service.generate_from_post(token, prompt, parent_post_id, aspect_ratio, video_length, resolution, preset, nsfw_rewrite=nsfw_rewrite)
+                        elif image_url:
+                            response = await service.generate_from_image(token, prompt, image_url, aspect_ratio, video_length, resolution, preset, nsfw_rewrite=nsfw_rewrite)
+                        else:
+                            response = await service.generate(token, prompt, aspect_ratio, video_length, resolution, preset, nsfw_rewrite=nsfw_rewrite)
+
+                        processor = VideoStreamProcessor(model, token, show_think, upscale_on_finish=should_upscale)
+                        wrapped_stream = wrap_stream_with_usage(processor.process(response), token_mgr, token, model)
+
+                        # We must iterate the stream safely. If the stream yields an exception,
+                        # we catch it and break the inner loop to trigger the outer token retry loop.
+                        stream_failed = False
+                        try:
+                            async for chunk in wrapped_stream:
+                                yield chunk
+                        except UpstreamException as e:
+                            last_error = e
+                            if str(e) == "MODERATED_VIDEO":
+                                await token_mgr.mark_rate_limited(token)
+                                logger.warning(f"Video moderated on token {token[:10]}... trying next account")
+                                yield 'data: {"id":"sys","object":"chat.completion.chunk","created":0,"model":"video","choices":[{"index":0,"delta":{"content":"\\n**[系统防御机制触发]** 当前Grok账号遭遇官方对图源的强力视觉拦截。正在抛弃该高风险账号并自动为您切换至新的白名账号并发重试，请稍候...\\n"},"finish_reason":null}]}\n\n'
+                                stream_failed = True
+                            elif rate_limited(e):
+                                await token_mgr.mark_rate_limited(token)
+                                logger.warning(f"Token {token[:10]}... rate limited (429), trying next token (attempt {attempt + 1}/{max_token_retries})")
+                                stream_failed = True
+                            else:
+                                raise
+
+                        if stream_failed:
+                            continue
+                        
+                        # If we completed the stream successfully without exception, we are done
+                        return
+
+                    except Exception as e:
+                        # Anything else outside the stream iteration breaks immediately
+                        raise
+
                 if last_error:
                     raise last_error
                 raise AppException(
@@ -359,114 +439,86 @@ class VideoService:
                     status_code=429,
                 )
 
-            # Extract token string from TokenInfo.
-            token = token_info.token
-            if token.startswith("sso="):
-                token = token[4:]
-            pool_name = token_mgr.get_pool_name_for_token(token)
-            should_upscale = resolution == "720p" and pool_name == BASIC_POOL_NAME
+            return _stream_generator()
+        
+        else:
+            for attempt in range(max_token_retries):
+                pool_candidates = ModelService.pool_candidates_for_model(model)
+                token_info = token_mgr.get_token_for_video(
+                    resolution=resolution,
+                    video_length=video_length,
+                    pool_candidates=pool_candidates,
+                )
 
-            try:
-                # Handle image attachments.
-                image_url = None
-                if image_attachments:
-                    for attach_data in image_attachments:
-                        if isinstance(attach_data, str) and attach_data.startswith("https://assets.grok.com/"):
-                            image_url = attach_data
-                            logger.info(f"Image already on assets.grok.com, skipping upload: {image_url}")
-                            break
-                        upload_service = UploadService()
-                        try:
-                            _, file_uri = await upload_service.upload_file(
-                                attach_data, token
-                            )
-                            image_url = f"https://assets.grok.com/{file_uri}"
-                            logger.info(f"Image uploaded for video: {image_url}")
-                        finally:
-                            await upload_service.close()
-                        break
-
-                # Generate video.
-                service = VideoService()
-                if parent_post_id:
-                    response = await service.generate_from_post(
-                        token,
-                        prompt,
-                        parent_post_id,
-                        aspect_ratio,
-                        video_length,
-                        resolution,
-                        preset,
-                    )
-                elif image_url:
-                    response = await service.generate_from_image(
-                        token,
-                        prompt,
-                        image_url,
-                        aspect_ratio,
-                        video_length,
-                        resolution,
-                        preset,
-                    )
-                else:
-                    response = await service.generate(
-                        token,
-                        prompt,
-                        aspect_ratio,
-                        video_length,
-                        resolution,
-                        preset,
+                if not token_info:
+                    if last_error:
+                        raise last_error
+                    raise AppException(
+                        message="No available tokens. Please try again later.",
+                        error_type=ErrorType.RATE_LIMIT.value,
+                        code="rate_limit_exceeded",
+                        status_code=429,
                     )
 
-                # Process response.
-                if is_stream:
-                    processor = VideoStreamProcessor(
-                        model,
-                        token,
-                        show_think,
-                        upscale_on_finish=should_upscale,
-                    )
-                    return wrap_stream_with_usage(
-                        processor.process(response), token_mgr, token, model
-                    )
+                token = token_info.token
+                if token.startswith("sso="):
+                    token = token[4:]
+                pool_name = token_mgr.get_pool_name_for_token(token)
+                should_upscale = resolution == "720p" and pool_name == BASIC_POOL_NAME
 
-                result = await VideoCollectProcessor(
-                    model, token, upscale_on_finish=should_upscale
-                ).process(response)
                 try:
-                    model_info = ModelService.get(model)
-                    effort = (
-                        EffortType.HIGH
-                        if (model_info and model_info.cost.value == "high")
-                        else EffortType.LOW
-                    )
-                    await token_mgr.consume(token, effort)
-                    logger.debug(
-                        f"Video completed, recorded usage (effort={effort.value})"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to record video usage: {e}")
-                return result
+                    image_url = None
+                    if image_attachments:
+                        for attach_data in image_attachments:
+                            if isinstance(attach_data, str) and attach_data.startswith("https://assets.grok.com/"):
+                                image_url = attach_data
+                                break
+                            upload_service = UploadService()
+                            try:
+                                _, file_uri = await upload_service.upload_file(attach_data, token)
+                                image_url = f"https://assets.grok.com/{file_uri}"
+                            finally:
+                                await upload_service.close()
+                            break
 
-            except UpstreamException as e:
-                last_error = e
-                if rate_limited(e):
-                    await token_mgr.mark_rate_limited(token)
-                    logger.warning(
-                        f"Token {token[:10]}... rate limited (429), "
-                        f"trying next token (attempt {attempt + 1}/{max_token_retries})"
-                    )
-                    continue
-                raise
+                    service = VideoService()
+                    if parent_post_id:
+                        response = await service.generate_from_post(token, prompt, parent_post_id, aspect_ratio, video_length, resolution, preset)
+                    elif image_url:
+                        response = await service.generate_from_image(token, prompt, image_url, aspect_ratio, video_length, resolution, preset)
+                    else:
+                        response = await service.generate(token, prompt, aspect_ratio, video_length, resolution, preset)
 
-        if last_error:
-            raise last_error
-        raise AppException(
-            message="No available tokens. Please try again later.",
-            error_type=ErrorType.RATE_LIMIT.value,
-            code="rate_limit_exceeded",
-            status_code=429,
-        )
+                    result = await VideoCollectProcessor(model, token, upscale_on_finish=should_upscale).process(response)
+                    try:
+                        model_info = ModelService.get(model)
+                        effort = EffortType.HIGH if (model_info and model_info.cost.value == "high") else EffortType.LOW
+                        await token_mgr.consume(token, effort)
+                        logger.debug(f"Video completed, recorded usage (effort={effort.value})")
+                    except Exception as e:
+                        logger.warning(f"Failed to record video usage: {e}")
+                    return result
+
+                except UpstreamException as e:
+                    last_error = e
+                    if str(e) == "MODERATED_VIDEO":
+                        await token_mgr.mark_rate_limited(token)
+                        logger.warning(f"Video moderated on token {token[:10]}... trying next account")
+                        continue
+                    if rate_limited(e):
+                        await token_mgr.mark_rate_limited(token)
+                        logger.warning(f"Token {token[:10]}... rate limited (429), trying next token (attempt {attempt + 1}/{max_token_retries})")
+                        continue
+                    raise
+
+            if last_error:
+                raise last_error
+            raise AppException(
+                message="No available tokens. Please try again later.",
+                error_type=ErrorType.RATE_LIMIT.value,
+                code="rate_limit_exceeded",
+                status_code=429,
+            )
 
 
 class VideoStreamProcessor(BaseProcessor):
@@ -545,6 +597,7 @@ class VideoStreamProcessor(BaseProcessor):
     ) -> AsyncGenerator[str, None]:
         """Process video stream response."""
         idle_timeout = get_config("video.stream_timeout")
+        video_yielded = False
 
         try:
             async for line in _with_idle_timeout(response, idle_timeout, self.model):
@@ -608,6 +661,10 @@ class VideoStreamProcessor(BaseProcessor):
                             f"videoPostId={video_post_id!r}, moderated={moderated!r}"
                         )
 
+                        if moderated is True:
+                            logger.error(f"Video generation intercepted by moderation! {video_resp}")
+                            raise UpstreamException("MODERATED_VIDEO")
+
                         # Fallback: when moderated=true, videoUrl is cleared
                         # but videoId + imageReference are preserved.
                         # Construct URL from imageReference pattern:
@@ -639,15 +696,18 @@ class VideoStreamProcessor(BaseProcessor):
                                 video_url, self.token, thumbnail_url
                             )
                             yield self._sse(rendered)
+                            video_yielded = True
 
                             logger.info(f"Video generated: {video_url}")
                         else:
-                            # Log the entire response if it failed
-                            error_msg = f"\n[Error] Video generation reached 100% but no URL was found.\nDetails: {orjson.dumps(video_resp).decode()}\n"
                             logger.error(f"Video URL missing at 100%: {video_resp}")
-                            yield self._sse(error_msg)
+                            raise UpstreamException("MODERATED_VIDEO")
                             
                     continue
+
+            if not video_yielded:
+                logger.error("Video stream ended without yielding a videoURL! Assuming silently moderated/rejected.")
+                raise UpstreamException("MODERATED_VIDEO")
 
             if self.think_opened:
                 yield self._sse("</think>\n")
@@ -690,6 +750,7 @@ class VideoStreamProcessor(BaseProcessor):
                 f"Video stream processing error: {e}",
                 extra={"model": self.model, "error_type": type(e).__name__},
             )
+            raise
         finally:
             await self.close()
 
@@ -757,6 +818,11 @@ class VideoCollectProcessor(BaseProcessor):
                         response_id = resp.get("responseId", "")
                         video_url = video_resp.get("videoUrl", "")
                         thumbnail_url = video_resp.get("thumbnailImageUrl", "")
+                        moderated = video_resp.get("moderated", None)
+
+                        if moderated is True:
+                            logger.error(f"Video generation intercepted by moderation! {video_resp}")
+                            raise UpstreamException("MODERATED_VIDEO")
 
                         # Fallback: construct URL from videoId when moderated
                         if not video_url:
@@ -785,21 +851,37 @@ class VideoCollectProcessor(BaseProcessor):
             logger.warning(
                 f"Video collect idle timeout: {e}", extra={"model": self.model}
             )
+            raise UpstreamException(
+                message=f"Video collect idle timeout after {e.idle_seconds}s",
+                status_code=504,
+                details={"error": str(e), "type": "stream_idle_timeout", "idle_seconds": e.idle_seconds},
+            )
         except RequestsError as e:
             if _is_http2_error(e):
                 logger.warning(
                     f"HTTP/2 stream error in video collect: {e}",
                     extra={"model": self.model},
                 )
+                raise UpstreamException(
+                    message="Upstream connection closed unexpectedly",
+                    status_code=502,
+                    details={"error": str(e), "type": "http2_stream_error"},
+                )
             else:
                 logger.error(
                     f"Video collect request error: {e}", extra={"model": self.model}
+                )
+                raise UpstreamException(
+                    message=f"Upstream request failed: {e}",
+                    status_code=502,
+                    details={"error": str(e)},
                 )
         except Exception as e:
             logger.error(
                 f"Video collect processing error: {e}",
                 extra={"model": self.model, "error_type": type(e).__name__},
             )
+            raise
         finally:
             await self.close()
 
