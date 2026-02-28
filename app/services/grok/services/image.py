@@ -372,7 +372,8 @@ class ImageWSBaseProcessor(BaseProcessor):
         if not data:
             return ""
         image_dir = self._ensure_image_dir()
-        ext = ext or self._guess_ext(blob)
+        detected = self._guess_ext(blob)  # actual binary format takes priority over URL ext
+        ext = detected or ext
         filename = self._filename(image_id, is_final, ext=ext)
         filepath = image_dir / filename
 
