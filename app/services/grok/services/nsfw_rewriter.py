@@ -22,7 +22,7 @@ import aiohttp
 _VOCAB_MAP: list[tuple[str, str]] = [
     # 性行为描述
     (r"性交|做爱|插入|交合|交媾|干她|干她|操她|上她|插她|肏|交配|性爱", "rhythmic pulsing, slow merging, undulating waves, intimate and heated connection"),
-    (r"sex|intercourse|fucking|fuck her|insert|penetrat", "rhythmic pulsing and undulating intimate connection"),
+    (r"sex|intercourse|fuck(?:ing|ed|s|er)?|fuck her|insert|penetrat", "rhythmic pulsing and undulating intimate connection"),
     # 脱衣行为
     (r"脱掉上衣|脱去上衣|脱衣|褪去衣物|宽衣解带|脱下衣服|脱下内衣|脱掉内衣|脱掉衣服|脱光衣服|全裸|裸体|裸露", "sheer fabric dissolving artistically, natural state revealed, warmth unlocking layers, exposed glistening contours"),
     (r"undress|strip|take off clothes|topless|naked|nude|exposed body", "sheer fabric gracefully dissolving to reveal naturally glistening sculpted contours"),
@@ -47,7 +47,7 @@ _VOCAB_MAP: list[tuple[str, str]] = [
     (r"骑乘|骑上|趴着|狗爬式|四肢着地", "she moves in a graceful ascending undulating motion, raw passionate momentum"),
     # 口交
     (r"口交|吹箫|深喉|舔", "tender intimate oral exploration, soft lips and tongue dancing in slow rhythm"),
-    (r"blowjob|oral sex|fellatio|cunnilingus|lick", "tender intimate oral artistic exploration in slow rhythmic motion"),
+    (r"suck(?:ing|s|ed)?|blowjob|oral sex|fellatio|cunnilingus|lick(?:ing|s|ed)?", "tender intimate oral artistic exploration in slow rhythmic motion"),
 ]
 
 # ──────────────────────────────────────────────
