@@ -356,7 +356,7 @@ class ImageWSBaseProcessor(BaseProcessor):
             if ext == "jpeg":
                 ext = "jpg"
         if not ext:
-            ext = "jpg" if is_final else "png"
+            ext = "png"
         return f"{image_id}.{ext}"
 
     def _build_file_url(self, filename: str) -> str:
