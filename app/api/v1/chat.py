@@ -37,6 +37,7 @@ class VideoConfig(BaseModel):
     video_length: Optional[int] = Field(6, description="视频时长(秒): 6 / 10 / 15")
     resolution_name: Optional[str] = Field("480p", description="视频分辨率: 480p, 720p")
     preset: Optional[str] = Field("custom", description="风格预设: fun, normal, spicy")
+    nsfw_rewrite: Optional[bool] = Field(False, description="是否启用自动脱敏改写 (仅限 spicy/fun)")
 
 class ImageConfig(BaseModel):
     """图片生成配置"""
@@ -651,6 +652,7 @@ async def chat_completions(request: ChatCompletionRequest):
             video_length=v_conf.video_length,
             resolution=v_conf.resolution_name,
             preset=v_conf.preset,
+            nsfw_rewrite=v_conf.nsfw_rewrite,
         )
     else:
         result = await ChatService.completions(

@@ -116,6 +116,8 @@ concurrent = 100
 timeout = 60
 # 流式空闲超时时间（秒）
 stream_timeout = 60
+# 是否启用 NSFW 提示词自动脱敏改写（spicy/fun 模式才生效）
+nsfw_rewrite = false
 
 # ==================== 语音配置 ====================
 [voice]

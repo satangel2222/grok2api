@@ -52,6 +52,7 @@ async def _new_session(
     image_url: Optional[str],
     parent_post_id: Optional[str],
     reasoning_effort: Optional[str],
+    nsfw_rewrite: bool = False,
 ) -> str:
     task_id = uuid.uuid4().hex
     now = time.time()
@@ -66,6 +67,7 @@ async def _new_session(
             "image_url": image_url,
             "parent_post_id": parent_post_id,
             "reasoning_effort": reasoning_effort,
+            "nsfw_rewrite": nsfw_rewrite,
             "created_at": now,
         }
     return task_id
@@ -135,6 +137,7 @@ class VideoStartRequest(BaseModel):
     parent_post_id: Optional[str] = None
     parentPostId: Optional[str] = None
     reasoning_effort: Optional[str] = None
+    nsfw_rewrite: Optional[bool] = False
 
 
 @router.post("/video/start", dependencies=[Depends(verify_public_key)])
@@ -199,6 +202,7 @@ async def public_video_start(data: VideoStartRequest):
         image_url,
         parent_post_id,
         reasoning_effort,
+        data.nsfw_rewrite or False,
     )
     return {"task_id": task_id, "aspect_ratio": aspect_ratio}
 
@@ -217,6 +221,7 @@ async def public_video_sse(request: Request, task_id: str = Query("")):
     image_url = session.get("image_url")
     parent_post_id = session.get("parent_post_id")
     reasoning_effort = session.get("reasoning_effort")
+    nsfw_rewrite = bool(session.get("nsfw_rewrite"))
 
     async def event_stream():
         try:
@@ -254,6 +259,7 @@ async def public_video_sse(request: Request, task_id: str = Query("")):
                 resolution=resolution_name,
                 preset=preset,
                 parent_post_id=parent_post_id,
+                nsfw_rewrite=nsfw_rewrite,
             )
 
             async for chunk in stream:
