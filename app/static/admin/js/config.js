@@ -27,8 +27,10 @@ const NUMERIC_FIELDS = new Set([
   'reload_interval_sec',
   'stream_timeout',
   'final_timeout',
+  'blocked_grace_seconds',
   'final_min_bytes',
   'medium_min_bytes',
+  'blocked_parallel_attempts',
   'concurrent',
   'batch_size'
 ]);
@@ -36,7 +38,7 @@ const NUMERIC_FIELDS = new Set([
 const LOCALE_MAP = {
   "app": {
     "label": "应用设置",
-    "api_key": { title: "API 密钥", desc: "调用 Grok2API 服务的 Token（可选）。" },
+    "api_key": { title: "API 密钥", desc: "调用 Grok2API 服务的 Token（可选，支持多个，逗号分隔或数组）。" },
     "app_key": { title: "后台密码", desc: "登录 Grok2API 管理后台的密码（必填）。" },
     "public_enabled": { title: "启用功能玩法", desc: "是否启用功能玩法入口（关闭则功能玩法页面不可访问）。" },
     "public_key": { title: "Public 密码", desc: "功能玩法页面的访问密码（可选）。" },
@@ -56,9 +58,13 @@ const LOCALE_MAP = {
     "label": "代理配置",
     "base_proxy_url": { title: "基础代理 URL", desc: "代理请求到 Grok 官网的基础服务地址。" },
     "asset_proxy_url": { title: "资源代理 URL", desc: "代理请求到 Grok 官网的静态资源（图片/视频）地址。" },
-    "cf_clearance": { title: "CF Clearance", desc: "Cloudflare Clearance Cookie，用于绕过反爬虫验证。" },
-    "browser": { title: "浏览器指纹", desc: "curl_cffi 浏览器指纹标识（如 chrome136）。" },
-    "user_agent": { title: "User-Agent", desc: "HTTP 请求的 User-Agent 字符串，需与浏览器指纹匹配。" }
+    "enabled": { title: "启用 CF 自动刷新", desc: "启用后将通过 FlareSolverr 自动获取 cf_clearance。" },
+    "flaresolverr_url": { title: "FlareSolverr 地址", desc: "FlareSolverr 服务的 HTTP 地址（如 http://flaresolverr:8191）。" },
+    "refresh_interval": { title: "刷新间隔（秒）", desc: "自动刷新 cf_clearance 的时间间隔，建议不低于 300 秒。" },
+    "timeout": { title: "挑战超时（秒）", desc: "等待 FlareSolverr 解决 CF 挑战的最大时间。" },
+    "cf_clearance": { title: "CF Clearance", desc: "Cloudflare Clearance Cookie，用于绕过反爬虫验证。启用自动刷新时由系统自动管理。" },
+    "browser": { title: "浏览器指纹", desc: "curl_cffi 浏览器指纹标识（如 chrome136）。启用自动刷新时由系统自动管理。" },
+    "user_agent": { title: "User-Agent", desc: "HTTP 请求的 User-Agent 字符串。启用自动刷新时由系统自动管理。" }
   },
 
 
@@ -94,9 +100,20 @@ const LOCALE_MAP = {
     "timeout": { title: "请求超时", desc: "WebSocket 请求超时时间（秒）。" },
     "stream_timeout": { title: "流空闲超时", desc: "WebSocket 流式空闲超时时间（秒）。" },
     "final_timeout": { title: "最终图超时", desc: "收到中等图后等待最终图的超时秒数。" },
+    "blocked_grace_seconds": { title: "审查宽限秒数", desc: "收到中等图后，判定疑似被审查的宽限秒数（默认 10 秒，可自定义）。" },
     "nsfw": { title: "NSFW 模式", desc: "WebSocket 请求是否启用 NSFW。" },
     "medium_min_bytes": { title: "中等图最小字节", desc: "判定中等质量图的最小字节数。" },
-    "final_min_bytes": { title: "最终图最小字节", desc: "判定最终图的最小字节数（通常 JPG > 100KB）。" }
+    "final_min_bytes": { title: "最终图最小字节", desc: "判定最终图的最小字节数（通常 JPG > 100KB）。" },
+    "blocked_parallel_enabled": { title: "启用并行补偿", desc: "疑似审查/拦截时，是否启用并行补偿生成。" },
+    "blocked_parallel_attempts": { title: "拦截补偿并发次数", desc: "疑似审查/拦截导致无最终图时，自动并行补偿生成次数。" }
+  },
+
+
+  "imagine_fast": {
+    "label": "Imagine Fast 配置",
+    "n": { title: "生成数量", desc: "仅用于 grok-imagine-1.0-fast 的服务端统一生成数量（1-10）。" },
+    "size": { title: "图片尺寸", desc: "仅用于 grok-imagine-1.0-fast 的服务端统一尺寸。" },
+    "response_format": { title: "响应格式", desc: "仅用于 grok-imagine-1.0-fast 的服务端统一返回格式。" }
   },
 
 
@@ -160,6 +177,10 @@ const LOCALE_MAP = {
 const SECTION_DESCRIPTIONS = {
   "proxy": "配置不正确将导致 403 错误。服务首次请求 Grok 时的 IP 必须与获取 CF Clearance 时的 IP 一致，后续服务器请求 IP 变化不会导致 403。"
 };
+
+// CF 自动刷新联动禁用字段（全部在 proxy section 内）
+const CF_MANAGED_PROXY_KEYS = ['cf_clearance', 'browser', 'user_agent'];
+const CF_REFRESH_SUB_KEYS = ['flaresolverr_url', 'refresh_interval', 'timeout'];
 
 const SECTION_ORDER = new Map(Object.keys(LOCALE_MAP).map((key, index) => [key, index]));
 
@@ -335,14 +356,15 @@ function renderConfig(data) {
     const keyOrder = localeSection ? new Map(Object.keys(localeSection).map((k, i) => [k, i])) : null;
 
     const allKeys = sortByOrder(Object.keys(items), keyOrder);
+    const visibleKeys = allKeys.filter(key => !(section === 'proxy' && key === 'cf_cookies'));
 
-    if (allKeys.length > 0) {
+    if (visibleKeys.length > 0) {
       const card = document.createElement('div');
       card.className = 'config-section';
 
       const header = document.createElement('div');
       header.innerHTML = `<div class="config-section-title">${getSectionLabel(section)}</div>`;
-      
+
       // 添加部分说明（如果有）
       if (SECTION_DESCRIPTIONS[section]) {
         const descP = document.createElement('p');
@@ -350,13 +372,13 @@ function renderConfig(data) {
         descP.textContent = SECTION_DESCRIPTIONS[section];
         header.appendChild(descP);
       }
-      
+
       card.appendChild(header);
 
       const grid = document.createElement('div');
       grid.className = 'config-grid';
 
-      allKeys.forEach(key => {
+      visibleKeys.forEach(key => {
         const fieldCard = buildFieldCard(section, key, items[key]);
         grid.appendChild(fieldCard);
       });
@@ -369,6 +391,34 @@ function renderConfig(data) {
   });
 
   container.appendChild(fragment);
+
+  // 初始化 CF 自动刷新联动状态
+  const cfEnabled = data.proxy && data.proxy.enabled;
+  applyCfRefreshState(cfEnabled);
+}
+
+function applyCfRefreshState(enabled) {
+  // 设置字段禁用状态的辅助函数
+  function setFieldDisabled(section, key, disabled) {
+    const input = document.querySelector(
+      `input[data-section="${section}"][data-key="${key}"],` +
+      `textarea[data-section="${section}"][data-key="${key}"],` +
+      `select[data-section="${section}"][data-key="${key}"]`
+    );
+    if (!input) return;
+    input.disabled = disabled;
+    // 找到最近的 .config-field 父元素设置样式
+    const field = input.closest('.config-field');
+    if (field) {
+      field.style.opacity = disabled ? '0.45' : '';
+      field.style.pointerEvents = disabled ? 'none' : '';
+    }
+  }
+
+  // enabled=true → 灰掉 cf_clearance/browser/user_agent
+  CF_MANAGED_PROXY_KEYS.forEach(k => setFieldDisabled('proxy', k, !!enabled));
+  // enabled=false → 灰掉 flaresolverr_url/refresh_interval/timeout
+  CF_REFRESH_SUB_KEYS.forEach(k => setFieldDisabled('proxy', k, !enabled));
 }
 
 function buildFieldCard(section, key, val) {
@@ -412,6 +462,22 @@ function buildFieldCard(section, key, val) {
       { val: 'url', text: 'URL' }
     ]);
   }
+  else if (section === 'imagine_fast' && key === 'size') {
+    built = buildSelectInput(section, key, val, [
+      { val: '1024x1024', text: '1024x1024 (1:1)' },
+      { val: '1280x720', text: '1280x720 (16:9)' },
+      { val: '720x1280', text: '720x1280 (9:16)' },
+      { val: '1792x1024', text: '1792x1024 (3:2)' },
+      { val: '1024x1792', text: '1024x1792 (2:3)' }
+    ]);
+  }
+  else if (section === 'imagine_fast' && key === 'response_format') {
+    built = buildSelectInput(section, key, val, [
+      { val: 'url', text: 'URL' },
+      { val: 'b64_json', text: 'B64 JSON' },
+      { val: 'base64', text: 'Base64' }
+    ]);
+  }
   else if (Array.isArray(val) || typeof val === 'object') {
     built = buildJsonInput(section, key, val);
   }
@@ -427,6 +493,15 @@ function buildFieldCard(section, key, val) {
     inputWrapper.appendChild(built.node);
   }
   fieldCard.appendChild(inputWrapper);
+
+  // proxy.enabled (CF 自动刷新) 联动（toggle 本身始终可交互）
+  if (section === 'proxy' && key === 'enabled' && built && built.input) {
+    fieldCard.style.pointerEvents = 'auto';
+    fieldCard.style.opacity = '';
+    built.input.addEventListener('change', () => {
+      applyCfRefreshState(built.input.checked);
+    });
+  }
 
   if (section === 'app' && key === 'public_enabled') {
     fieldCard.classList.add('has-action');
@@ -480,6 +555,16 @@ async function saveConfig() {
       if (!newConfig[s]) newConfig[s] = {};
       newConfig[s][k] = val;
     });
+
+    if (newConfig.proxy && newConfig.proxy.enabled) {
+      const url = String(newConfig.proxy.flaresolverr_url || '').trim();
+      if (!url) {
+        showToast('启用自动刷新时必须填写 FlareSolverr 地址', 'error');
+        btn.disabled = false;
+        btn.innerText = originalText;
+        return;
+      }
+    }
 
     const res = await fetch('/v1/admin/config', {
       method: 'POST',
