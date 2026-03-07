@@ -38,6 +38,31 @@ from app.services.token.manager import BASIC_POOL_NAME
 _VIDEO_SEMAPHORE = None
 _VIDEO_SEM_VALUE = 0
 
+# Token cache for video extend: maps reference_id → (token, timestamp)
+_video_token_cache: dict[str, tuple[str, float]] = {}
+_CACHE_TTL = 3600  # 1 hour
+
+
+def store_video_token(reference_id: str, token: str) -> None:
+    """Store token used for video generation, for later extend use."""
+    import time as _t
+    _video_token_cache[reference_id] = (token, _t.time())
+    # Clean old entries
+    cutoff = _t.time() - _CACHE_TTL
+    for k in list(_video_token_cache.keys()):
+        if _video_token_cache[k][1] < cutoff:
+            del _video_token_cache[k]
+
+
+def get_video_token(reference_id: str) -> Optional[str]:
+    """Retrieve the token that generated a video by reference_id."""
+    import time as _t
+    entry = _video_token_cache.get(reference_id)
+    if entry and (_t.time() - entry[1]) < _CACHE_TTL:
+        return entry[0]
+    return None
+
+
 def _get_video_semaphore() -> asyncio.Semaphore:
     """Reverse 接口并发控制（video 服务）。"""
     global _VIDEO_SEMAPHORE, _VIDEO_SEM_VALUE
