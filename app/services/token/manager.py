@@ -3,7 +3,7 @@
 import asyncio
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from app.core.logger import logger
 from app.services.token.models import (
@@ -28,7 +28,6 @@ DEFAULT_REFRESH_INTERVAL_HOURS = 8
 DEFAULT_RELOAD_INTERVAL_SEC = 30
 DEFAULT_SAVE_DELAY_MS = 500
 DEFAULT_USAGE_FLUSH_INTERVAL_SEC = 5
-SUPER_WINDOW_THRESHOLD_SECONDS = 14400
 
 SUPER_POOL_NAME = "ssoSuper"
 BASIC_POOL_NAME = "ssoBasic"
@@ -183,48 +182,6 @@ class TokenManager:
             del self._dirty_tokens[token_key]
         self._mark_state_change()
 
-    def _extract_window_size_seconds(self, result: dict) -> Optional[int]:
-        if not isinstance(result, dict):
-            return None
-        for key in ("windowSizeSeconds", "window_size_seconds"):
-            if key in result:
-                try:
-                    return int(result.get(key))
-                except (TypeError, ValueError):
-                    return None
-        limits = result.get("limits") or result.get("rateLimits")
-        if isinstance(limits, dict):
-            for key in ("windowSizeSeconds", "window_size_seconds"):
-                if key in limits:
-                    try:
-                        return int(limits.get(key))
-                    except (TypeError, ValueError):
-                        return None
-        return None
-
-    def _move_token_pool(
-        self,
-        token: TokenInfo,
-        from_pool: str,
-        to_pool: str,
-        reason: str = "",
-    ) -> str:
-        if from_pool == to_pool:
-            return from_pool
-        if to_pool not in self.pools:
-            self.pools[to_pool] = TokenPool(to_pool)
-            logger.info(f"Pool '{to_pool}': created")
-        if from_pool in self.pools:
-            self.pools[from_pool].remove(token.token)
-        self.pools[to_pool].add(token)
-        self._track_token_change(token, to_pool, "state")
-        self._schedule_save()
-        extra = f" ({reason})" if reason else ""
-        logger.warning(
-            f"Token {token.token[:10]}... moved pool {from_pool} -> {to_pool}{extra}"
-        )
-        return to_pool
-
     async def _save(self, force: bool = False):
         """保存变更"""
         async with self._save_lock:
@@ -329,7 +286,7 @@ class TokenManager:
             if self._dirty:
                 self._schedule_save()
 
-    def get_token(self, pool_name: str = "ssoBasic", exclude: set = None, prefer_tags: Optional[Set[str]] = None) -> Optional[str]:
+    def get_token(self, pool_name: str = "ssoBasic", exclude: set = None) -> Optional[str]:
         """
         获取可用 Token
 
@@ -345,7 +302,7 @@ class TokenManager:
             logger.warning(f"Pool '{pool_name}' not found")
             return None
 
-        token_info = pool.select(exclude=exclude, prefer_tags=prefer_tags)
+        token_info = pool.select(exclude=exclude)
         if not token_info:
             logger.warning(f"No available token in pool '{pool_name}'")
             return None
@@ -355,7 +312,7 @@ class TokenManager:
             return token[4:]
         return token
 
-    def get_token_info(self, pool_name: str = "ssoBasic", prefer_tags: Optional[Set[str]] = None) -> Optional["TokenInfo"]:
+    def get_token_info(self, pool_name: str = "ssoBasic") -> Optional["TokenInfo"]:
         """
         获取可用 Token 的完整信息
 
@@ -370,7 +327,7 @@ class TokenManager:
             logger.warning(f"Pool '{pool_name}' not found")
             return None
 
-        token_info = pool.select(prefer_tags=prefer_tags)
+        token_info = pool.select()
         if not token_info:
             logger.warning(f"No available token in pool '{pool_name}'")
             return None
@@ -534,30 +491,6 @@ class TokenManager:
 
                 target_token.update_quota(new_quota)
                 target_token.record_success(is_usage=is_usage)
-                target_token.mark_synced()
-
-                window_size = self._extract_window_size_seconds(result)
-                if window_size is not None:
-                    if (
-                        target_pool_name == SUPER_POOL_NAME
-                        and window_size >= SUPER_WINDOW_THRESHOLD_SECONDS
-                    ):
-                        target_pool_name = self._move_token_pool(
-                            target_token,
-                            SUPER_POOL_NAME,
-                            BASIC_POOL_NAME,
-                            reason=f"windowSizeSeconds={window_size}",
-                        )
-                    elif (
-                        target_pool_name == BASIC_POOL_NAME
-                        and window_size < SUPER_WINDOW_THRESHOLD_SECONDS
-                    ):
-                        target_pool_name = self._move_token_pool(
-                            target_token,
-                            BASIC_POOL_NAME,
-                            SUPER_POOL_NAME,
-                            reason=f"windowSizeSeconds={window_size}",
-                        )
 
                 consumed = max(0, old_quota - new_quota)
                 logger.info(
@@ -904,30 +837,6 @@ class TokenManager:
                             token_info.update_quota(new_quota)
                             token_info.mark_synced()
 
-                            window_size = self._extract_window_size_seconds(result)
-                            if window_size is not None:
-                                current_pool = self.get_pool_name_for_token(token_info.token)
-                                if (
-                                    current_pool == SUPER_POOL_NAME
-                                    and window_size >= SUPER_WINDOW_THRESHOLD_SECONDS
-                                ):
-                                    self._move_token_pool(
-                                        token_info,
-                                        SUPER_POOL_NAME,
-                                        BASIC_POOL_NAME,
-                                        reason=f"windowSizeSeconds={window_size}",
-                                    )
-                                elif (
-                                    current_pool == BASIC_POOL_NAME
-                                    and window_size < SUPER_WINDOW_THRESHOLD_SECONDS
-                                ):
-                                    self._move_token_pool(
-                                        token_info,
-                                        BASIC_POOL_NAME,
-                                        SUPER_POOL_NAME,
-                                        reason=f"windowSizeSeconds={window_size}",
-                                    )
-
                             logger.info(
                                 f"Token {token_info.token[:10]}...: refreshed "
                                 f"{old_quota} -> {new_quota}, status: {old_status} -> {token_info.status}"
@@ -981,8 +890,7 @@ class TokenManager:
                 await asyncio.sleep(1)
 
         for pool_name, token_info in to_refresh:
-            current_pool = self.get_pool_name_for_token(token_info.token) or pool_name
-            self._track_token_change(token_info, current_pool, "state")
+            self._track_token_change(token_info, pool_name, "state")
         await self._save(force=True)
 
         logger.info(
