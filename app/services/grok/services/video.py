@@ -85,13 +85,13 @@ class VideoService:
     async def _build_message(cls, prompt: str, preset: str, nsfw_rewrite: bool = False) -> str:
         prompt_value = (prompt or "").strip()
 
-        # 自动脱敏改写：
-        # - 前端传入 nsfw_rewrite=true 时，仅对 spicy/fun preset 启用
-        # - 全局配置 video.nsfw_rewrite=true 时，对所有 preset 启用（包括 normal）
+        # NSFW 自动脱敏改写：
+        # - spicy/fun: 由前端 nsfw_rewrite 参数或全局 config 控制
+        # - normal: 始终启用 (不 rewrite 则 Grok 必定审核拦截，无意义)
         global_nsfw = get_config("video.nsfw_rewrite")
         should_rewrite = (
-            (preset in ("spicy", "fun") and (nsfw_rewrite or global_nsfw))
-            or (global_nsfw and preset == "normal")
+            preset == "normal"  # Normal always rewrites — Grok blocks raw NSFW otherwise
+            or (preset in ("spicy", "fun") and (nsfw_rewrite or global_nsfw))
         )
         if should_rewrite:
             from app.services.grok.services.nsfw_rewriter import NsfwPromptRewriter
