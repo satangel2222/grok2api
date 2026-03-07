@@ -716,6 +716,11 @@ class VideoStreamProcessor(BaseProcessor):
                                 video_url, self.token, thumbnail_url
                             )
                             yield self._sse(rendered)
+
+                            # Emit video_post_id as metadata for extend support
+                            if vid_for_cache:
+                                yield self._sse(f"\n<!-- video_post_id:{vid_for_cache} -->\n")
+
                             video_yielded = True
 
                             logger.info(f"Video generated: {video_url}")
@@ -878,6 +883,9 @@ class VideoCollectProcessor(BaseProcessor):
                             content = await dl_service.render_video(
                                 video_url, self.token, thumbnail_url
                             )
+                            # Append video_post_id metadata for extend support
+                            if vid_for_cache:
+                                content += f"\n<!-- video_post_id:{vid_for_cache} -->\n"
                             logger.info(f"Video generated: {video_url}")
 
         except asyncio.CancelledError:
