@@ -285,4 +285,54 @@ async def public_video_stop(data: VideoStopRequest):
     return {"status": "success", "removed": removed}
 
 
+# --- Video Extend (chain/continue) ---
+
+class VideoExtendRequest(BaseModel):
+    reference_id: str
+    prompt: Optional[str] = ""
+    aspect_ratio: Optional[str] = "3:2"
+    video_length: Optional[int] = 6
+    resolution: Optional[str] = "480p"
+
+
+@router.post("/video/extend", dependencies=[Depends(verify_public_key)])
+async def public_video_extend(data: VideoExtendRequest):
+    """Extend a video by generating a continuation from parent post."""
+    from app.services.grok.services.video_extend import extend_video
+
+    reference_id = (data.reference_id or "").strip()
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="reference_id is required")
+
+    aspect_ratio = _normalize_ratio(data.aspect_ratio)
+    if not aspect_ratio:
+        raise HTTPException(
+            status_code=400,
+            detail="aspect_ratio must be one of ['16:9','9:16','3:2','2:3','1:1']",
+        )
+
+    video_length = int(data.video_length or 6)
+    resolution = str(data.resolution or "480p")
+
+    try:
+        result = await extend_video(
+            reference_id=reference_id,
+            prompt=(data.prompt or "").strip(),
+            aspect_ratio=aspect_ratio,
+            video_length=video_length,
+            resolution=resolution,
+        )
+        return {
+            "status": "success",
+            "video_url": result.get("video_url", ""),
+            "video_post_id": result.get("video_post_id", ""),
+            "thumbnail_url": result.get("thumbnail_url", ""),
+        }
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except Exception as e:
+        logger.error(f"Video extend endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Video extend failed: {str(e)}")
+
+
 __all__ = ["router"]
