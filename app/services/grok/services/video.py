@@ -85,17 +85,14 @@ class VideoService:
     async def _build_message(cls, prompt: str, preset: str, nsfw_rewrite: bool = False) -> str:
         prompt_value = (prompt or "").strip()
 
-        # Optional prompt rewrite (only for spicy/fun when explicitly enabled)
+        mode_flag = cls._mode_flag(preset)
+
+        # 可选：自动脱敏改写（需前端传入 true 或者全局配置为 true 才启用）
         if preset in ("spicy", "fun") and (nsfw_rewrite or get_config("video.nsfw_rewrite")):
             from app.services.grok.services.nsfw_rewriter import NsfwPromptRewriter
             prompt_value = await NsfwPromptRewriter.rewrite(prompt_value, preset)
 
-        # Only append mode flag for spicy/fun presets.
-        # For normal preset, send the user's prompt as-is so Grok follows it faithfully.
-        # The structured "mode" field in videoGenModelConfig handles moderation bypass separately.
-        if preset in ("spicy", "fun"):
-            return f"{prompt_value} --mode=extremely-spicy-or-crazy".strip()
-        return prompt_value
+        return f"{prompt_value} {mode_flag}".strip()
 
     async def create_post(
         self,
@@ -158,15 +155,17 @@ class VideoService:
         )
         post_id = await self.create_post(token, prompt_value)
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
-        # Always send spicy mode — tells Grok to use permissive content filter
-        video_config = {
-            "aspectRatio": aspect_ratio,
-            "parentPostId": post_id,
-            "resolutionName": resolution_name,
-            "videoLength": video_length,
-            "mode": "extremely-spicy-or-crazy",
+        model_config_override = {
+            "modelMap": {
+                "videoGenModelConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "parentPostId": post_id,
+                    "resolutionName": resolution_name,
+                    "videoLength": video_length,
+                    "mode": self._mode_value(preset),
+                }
+            }
         }
-        model_config_override = {"modelMap": {"videoGenModelConfig": video_config}}
 
         async def _stream():
             session = _new_session()
@@ -213,16 +212,19 @@ class VideoService:
         )
         post_id = await self.create_image_post(token, image_url)
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
-        video_config = {
-            "aspectRatio": aspect_ratio,
-            "parentPostId": post_id,
-            "resolutionName": resolution,
-            "videoLength": video_length,
-            "mode": "extremely-spicy-or-crazy",
+        model_config_override = {
+            "modelMap": {
+                "videoGenModelConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "parentPostId": post_id,
+                    "resolutionName": resolution,
+                    "videoLength": video_length,
+                    "mode": self._mode_value(preset),
+                }
+            }
         }
-        model_config_override = {"modelMap": {"videoGenModelConfig": video_config}}
 
-        logger.info(f"i2v config: preset={preset!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
+        logger.info(f"i2v config: preset={preset!r}, mode_value={self._mode_value(preset)!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
 
         async def _stream():
             session = _new_session()
@@ -272,14 +274,17 @@ class VideoService:
             f"Post to video: prompt='{prompt_value[:50]}...', parent_post_id={post_id}, nsfw_rewrite={nsfw_rewrite}"
         )
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
-        video_config = {
-            "aspectRatio": aspect_ratio,
-            "parentPostId": post_id,
-            "resolutionName": resolution,
-            "videoLength": video_length,
-            "mode": "extremely-spicy-or-crazy",
+        model_config_override = {
+            "modelMap": {
+                "videoGenModelConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "parentPostId": post_id,
+                    "resolutionName": resolution,
+                    "videoLength": video_length,
+                    "mode": self._mode_value(preset),
+                }
+            }
         }
-        model_config_override = {"modelMap": {"videoGenModelConfig": video_config}}
 
         async def _stream():
             session = _new_session()
