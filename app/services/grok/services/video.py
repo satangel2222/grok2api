@@ -90,11 +90,12 @@ class VideoService:
             from app.services.grok.services.nsfw_rewriter import NsfwPromptRewriter
             prompt_value = await NsfwPromptRewriter.rewrite(prompt_value, preset)
 
-        # Always append spicy mode flag — this tells Grok to use permissive content filter.
-        # Without this, Grok applies strict moderation and blocks NSFW content.
-        # The "mode" flag in the message text works together with the structured
-        # "mode" field in videoGenModelConfig to bypass visual moderation.
-        return f"{prompt_value} --mode=extremely-spicy-or-crazy".strip()
+        # Only append mode flag for spicy/fun presets.
+        # For normal preset, send the user's prompt as-is so Grok follows it faithfully.
+        # The structured "mode" field in videoGenModelConfig handles moderation bypass separately.
+        if preset in ("spicy", "fun"):
+            return f"{prompt_value} --mode=extremely-spicy-or-crazy".strip()
+        return prompt_value
 
     async def create_post(
         self,
