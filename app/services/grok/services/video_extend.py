@@ -82,6 +82,7 @@ def _build_extend_payload(
                 "modelMap": {
                     "videoGenModelConfig": {
                         "aspectRatio": aspect_ratio,
+                        "mode": "extremely-spicy-or-crazy",
                         "parentPostId": parent_post_id,
                         "resolutionName": resolution,
                         "videoLength": video_length,
@@ -168,8 +169,8 @@ async def extend_video(
         f"ratio={aspect_ratio}, length={video_length}s"
     )
 
-    # Build the continuation message
-    message = (prompt or "Continue the video seamlessly").strip()
+    # Build the continuation message (always append spicy mode flag)
+    message = f"{(prompt or 'Continue the video seamlessly').strip()} --mode=extremely-spicy-or-crazy"
 
     # Build payload for conversation continuation
     payload = _build_extend_payload(
