@@ -38,30 +38,6 @@ from app.services.token.manager import BASIC_POOL_NAME
 _VIDEO_SEMAPHORE = None
 _VIDEO_SEM_VALUE = 0
 
-# Token cache for video extend: maps reference_id → (token, timestamp)
-_video_token_cache: dict[str, tuple[str, float]] = {}
-_CACHE_TTL = 3600  # 1 hour
-
-
-def store_video_token(reference_id: str, token: str) -> None:
-    """Store token used for video generation, for later extend use."""
-    import time as _t
-    _video_token_cache[reference_id] = (token, _t.time())
-    # Clean old entries
-    cutoff = _t.time() - _CACHE_TTL
-    for k in list(_video_token_cache.keys()):
-        if _video_token_cache[k][1] < cutoff:
-            del _video_token_cache[k]
-
-
-def get_video_token(reference_id: str) -> Optional[str]:
-    """Retrieve the token that generated a video by reference_id."""
-    import time as _t
-    entry = _video_token_cache.get(reference_id)
-    if entry and (_t.time() - entry[1]) < _CACHE_TTL:
-        return entry[0]
-    return None
-
 def _get_video_semaphore() -> asyncio.Semaphore:
     """Reverse 接口并发控制（video 服务）。"""
     global _VIDEO_SEMAPHORE, _VIDEO_SEM_VALUE
@@ -314,7 +290,6 @@ class VideoService:
                 token = token[4:]
             pool_name = token_mgr.get_pool_name_for_token(token)
             should_upscale = resolution == "720p" and pool_name == BASIC_POOL_NAME
-            logger.debug(f"Video generation: pool={pool_name}")
 
             try:
                 # Handle image attachments.
@@ -380,12 +355,6 @@ class VideoService:
                 result = await VideoCollectProcessor(
                     model, token, upscale_on_finish=should_upscale
                 ).process(response)
-
-                # Store token for extend reference
-                vpi = result.get("video_post_id", "") if isinstance(result, dict) else ""
-                if vpi:
-                    store_video_token(vpi, token)
-
                 try:
                     model_info = ModelService.get(model)
                     effort = (
@@ -558,12 +527,6 @@ class VideoStreamProcessor(BaseProcessor):
                             self.think_opened = False
 
                         if video_url:
-                            # Store token for extend support
-                            vid_id = self._extract_video_id(video_url)
-                            if vid_id:
-                                store_video_token(vid_id, self.token)
-                                logger.info(f"Stored token for video_post_id={vid_id}")
-
                             if self.upscale_on_finish:
                                 yield self._sse("正在对视频进行超分辨率\n")
                                 video_url = await self._upscale_video_url(video_url)
@@ -664,8 +627,6 @@ class VideoCollectProcessor(BaseProcessor):
     async def process(self, response: AsyncIterable[bytes]) -> dict[str, Any]:
         """Process and collect video response."""
         response_id = ""
-        video_post_id = ""
-        conversation_id = ""
         content = ""
         idle_timeout = get_config("video.stream_timeout")
 
@@ -679,26 +640,13 @@ class VideoCollectProcessor(BaseProcessor):
                 except orjson.JSONDecodeError:
                     continue
 
-                # Capture conversation ID from first line
-                conv = data.get("result", {}).get("conversation", {})
-                if conv_id := conv.get("conversationId"):
-                    conversation_id = conv_id
-
                 resp = data.get("result", {}).get("response", {})
 
                 if video_resp := resp.get("streamingVideoGenerationResponse"):
-                    progress = video_resp.get("progress", 0)
-                    if progress == 100:
+                    if video_resp.get("progress") == 100:
                         response_id = resp.get("responseId", "")
                         video_url = video_resp.get("videoUrl", "")
                         thumbnail_url = video_resp.get("thumbnailImageUrl", "")
-                        raw_video_post_id = video_resp.get("videoPostId", "")
-                        raw_parent_post_id = video_resp.get("parentPostId", "")
-                        video_post_id = raw_video_post_id or raw_parent_post_id
-                        logger.debug(
-                            f"Video IDs: videoPostId={raw_video_post_id}, "
-                            f"parentPostId={raw_parent_post_id}"
-                        )
 
                         if video_url:
                             if self.upscale_on_finish:
@@ -740,7 +688,6 @@ class VideoCollectProcessor(BaseProcessor):
             "object": "chat.completion",
             "created": self.created,
             "model": self.model,
-            "video_post_id": video_post_id,
             "choices": [
                 {
                     "index": 0,
