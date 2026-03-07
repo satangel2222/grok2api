@@ -155,17 +155,16 @@ class VideoService:
         )
         post_id = await self.create_post(token, prompt_value)
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
-        model_config_override = {
-            "modelMap": {
-                "videoGenModelConfig": {
-                    "aspectRatio": aspect_ratio,
-                    "parentPostId": post_id,
-                    "resolutionName": resolution_name,
-                    "videoLength": video_length,
-                    "mode": self._mode_value(preset),
-                }
-            }
+        base_config = {
+            "aspectRatio": aspect_ratio,
+            "parentPostId": post_id,
+            "resolutionName": resolution_name,
+            "videoLength": video_length,
         }
+        # Only include mode for spicy/fun presets (upstream does NOT send mode for normal)
+        if preset in ("spicy", "fun"):
+            base_config["mode"] = self._mode_value(preset)
+        model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
             session = _new_session()
@@ -212,19 +211,17 @@ class VideoService:
         )
         post_id = await self.create_image_post(token, image_url)
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
-        model_config_override = {
-            "modelMap": {
-                "videoGenModelConfig": {
-                    "aspectRatio": aspect_ratio,
-                    "parentPostId": post_id,
-                    "resolutionName": resolution,
-                    "videoLength": video_length,
-                    "mode": self._mode_value(preset),
-                }
-            }
+        base_config = {
+            "aspectRatio": aspect_ratio,
+            "parentPostId": post_id,
+            "resolutionName": resolution,
+            "videoLength": video_length,
         }
+        if preset in ("spicy", "fun"):
+            base_config["mode"] = self._mode_value(preset)
+        model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
-        logger.info(f"i2v config: preset={preset!r}, mode_value={self._mode_value(preset)!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
+        logger.info(f"i2v config: preset={preset!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
 
         async def _stream():
             session = _new_session()
@@ -274,17 +271,15 @@ class VideoService:
             f"Post to video: prompt='{prompt_value[:50]}...', parent_post_id={post_id}, nsfw_rewrite={nsfw_rewrite}"
         )
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
-        model_config_override = {
-            "modelMap": {
-                "videoGenModelConfig": {
-                    "aspectRatio": aspect_ratio,
-                    "parentPostId": post_id,
-                    "resolutionName": resolution,
-                    "videoLength": video_length,
-                    "mode": self._mode_value(preset),
-                }
-            }
+        base_config = {
+            "aspectRatio": aspect_ratio,
+            "parentPostId": post_id,
+            "resolutionName": resolution,
+            "videoLength": video_length,
         }
+        if preset in ("spicy", "fun"):
+            base_config["mode"] = self._mode_value(preset)
+        model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
             session = _new_session()
