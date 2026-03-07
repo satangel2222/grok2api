@@ -266,8 +266,6 @@ async def extend_video(
                     continue
 
                 # progress == 100 — video is ready
-                logger.info(f"Video extend raw response keys: {list(video_resp.keys())}")
-                logger.info(f"Video extend FULL response: {orjson.dumps(video_resp).decode()[:2000]}")
                 raw_video_url = video_resp.get("videoUrl", "")
                 raw_thumb_url = video_resp.get("thumbnailImageUrl", "")
 
