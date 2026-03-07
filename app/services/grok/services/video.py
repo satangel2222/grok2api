@@ -34,6 +34,7 @@ from app.services.reverse.media_post import MediaPostReverse
 from app.services.reverse.video_upscale import VideoUpscaleReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.services.token.manager import BASIC_POOL_NAME
+from app.services.grok.services.video_token_cache import store_video_token
 
 _VIDEO_SEMAPHORE = None
 _VIDEO_SEM_VALUE = 0
@@ -688,6 +689,12 @@ class VideoStreamProcessor(BaseProcessor):
                             self.think_opened = False
 
                         if video_url:
+                            # Store token for extend support
+                            vid_for_cache = video_post_id or self._extract_video_id(video_url)
+                            if vid_for_cache:
+                                store_video_token(vid_for_cache, self.token)
+                                logger.info(f"Cached token for video extend: {vid_for_cache}")
+
                             if self.upscale_on_finish:
                                 yield self._sse("正在对视频进行超分辨率\n")
                                 video_url = await self._upscale_video_url(video_url)
@@ -835,6 +842,16 @@ class VideoCollectProcessor(BaseProcessor):
                                     logger.info(f"Constructed video URL from videoId: {video_url}")
 
                         if video_url:
+                            # Store token for extend support
+                            vid_for_cache = (
+                                video_resp.get("videoPostId", "")
+                                or video_resp.get("videoId", "")
+                                or self._extract_video_id(video_url)
+                            )
+                            if vid_for_cache:
+                                store_video_token(vid_for_cache, self.token)
+                                logger.info(f"Cached token for video extend: {vid_for_cache}")
+
                             if self.upscale_on_finish:
                                 video_url = await self._upscale_video_url(video_url)
                             dl_service = self._get_dl()
