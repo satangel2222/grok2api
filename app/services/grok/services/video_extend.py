@@ -176,8 +176,21 @@ async def extend_video(
         store_video_token(new_video_post_id, token)
         logger.info(f"Stored token for chain extend: {new_video_post_id}")
 
+    # Proxy the video through grok2api's download service (same as normal generation)
+    from app.services.grok.utils.download import DownloadService
+    dl = DownloadService()
+    try:
+        final_video_url = await dl.resolve_url(video_url, token, "video")
+        final_thumb_url = ""
+        if thumbnail_url:
+            final_thumb_url = await dl.resolve_url(thumbnail_url, token, "image")
+    except Exception as e:
+        logger.warning(f"Video extend: failed to proxy URLs: {e}")
+        final_video_url = video_url
+        final_thumb_url = thumbnail_url
+
     return {
-        "video_url": video_url,
+        "video_url": final_video_url,
         "video_post_id": new_video_post_id,
-        "thumbnail_url": thumbnail_url,
+        "thumbnail_url": final_thumb_url,
     }
