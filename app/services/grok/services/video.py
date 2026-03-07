@@ -695,7 +695,7 @@ class VideoStreamProcessor(BaseProcessor):
                             vid_for_cache = video_post_id or self._extract_video_id(video_url)
                             if vid_for_cache:
                                 store_video_context(vid_for_cache, self.token, _conversation_id)
-                                logger.info(f"Cached context for video extend: vid={vid_for_cache}, conv={_conversation_id}")
+                                logger.info(f"Cached context for video extend: vid={vid_for_cache}, conv={_conversation_id}, token_hash={hash(self.token)}, token_prefix={self.token[:30]}...")
 
                             if self.upscale_on_finish:
                                 yield self._sse("正在对视频进行超分辨率\n")
@@ -864,7 +864,7 @@ class VideoCollectProcessor(BaseProcessor):
                             )
                             if vid_for_cache:
                                 store_video_context(vid_for_cache, self.token, _conversation_id)
-                                logger.info(f"Cached context for video extend: vid={vid_for_cache}, conv={_conversation_id}")
+                                logger.info(f"Cached context for video extend: vid={vid_for_cache}, conv={_conversation_id}, token_hash={hash(self.token)}, token_prefix={self.token[:30]}...")
 
                             if self.upscale_on_finish:
                                 video_url = await self._upscale_video_url(video_url)

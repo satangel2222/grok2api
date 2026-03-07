@@ -164,8 +164,8 @@ async def extend_video(
         )
 
     logger.info(
-        f"Video extend: ref={reference_id}, conv={conversation_id[:12]}..., "
-        f"prompt='{prompt[:50]}...', token={token[:10]}..., "
+        f"Video extend: ref={reference_id}, conv={conversation_id}, "
+        f"prompt='{prompt[:50]}...', token_hash={hash(token)}, token_prefix={token[:30]}..., "
         f"ratio={aspect_ratio}, length={video_length}s"
     )
 
