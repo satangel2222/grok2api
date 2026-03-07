@@ -85,24 +85,16 @@ class VideoService:
     async def _build_message(cls, prompt: str, preset: str, nsfw_rewrite: bool = False) -> str:
         prompt_value = (prompt or "").strip()
 
-        # NSFW 自动脱敏改写：
-        # - spicy/fun: 由前端 nsfw_rewrite 参数或全局 config 控制
-        # - normal: 始终启用 (不 rewrite 则 Grok 必定审核拦截，无意义)
-        global_nsfw = get_config("video.nsfw_rewrite")
-        should_rewrite = (
-            preset == "normal"  # Normal always rewrites — Grok blocks raw NSFW otherwise
-            or (preset in ("spicy", "fun") and (nsfw_rewrite or global_nsfw))
-        )
-        if should_rewrite:
+        # Optional prompt rewrite (only for spicy/fun when explicitly enabled)
+        if preset in ("spicy", "fun") and (nsfw_rewrite or get_config("video.nsfw_rewrite")):
             from app.services.grok.services.nsfw_rewriter import NsfwPromptRewriter
-            rewrite_preset = preset if preset in ("spicy", "fun") else "spicy"
-            prompt_value = await NsfwPromptRewriter.rewrite(prompt_value, rewrite_preset)
+            prompt_value = await NsfwPromptRewriter.rewrite(prompt_value, preset)
 
-        # Only append mode flag for spicy/fun — "normal" mode flag triggers stricter Grok moderation
-        if preset in ("spicy", "fun"):
-            mode_flag = cls._mode_flag(preset)
-            return f"{prompt_value} {mode_flag}".strip()
-        return prompt_value
+        # Always append spicy mode flag — this tells Grok to use permissive content filter.
+        # Without this, Grok applies strict moderation and blocks NSFW content.
+        # The "mode" flag in the message text works together with the structured
+        # "mode" field in videoGenModelConfig to bypass visual moderation.
+        return f"{prompt_value} --mode=extremely-spicy-or-crazy".strip()
 
     async def create_post(
         self,
@@ -165,15 +157,14 @@ class VideoService:
         )
         post_id = await self.create_post(token, prompt_value)
         message = await self._build_message(prompt_value, preset, nsfw_rewrite=nsfw_rewrite)
+        # Always send spicy mode — tells Grok to use permissive content filter
         video_config = {
             "aspectRatio": aspect_ratio,
             "parentPostId": post_id,
             "resolutionName": resolution_name,
             "videoLength": video_length,
+            "mode": "extremely-spicy-or-crazy",
         }
-        # Only send mode for spicy/fun — sending "mode": "normal" triggers stricter Grok moderation
-        if preset in ("spicy", "fun"):
-            video_config["mode"] = self._mode_value(preset)
         model_config_override = {"modelMap": {"videoGenModelConfig": video_config}}
 
         async def _stream():
@@ -226,12 +217,11 @@ class VideoService:
             "parentPostId": post_id,
             "resolutionName": resolution,
             "videoLength": video_length,
+            "mode": "extremely-spicy-or-crazy",
         }
-        if preset in ("spicy", "fun"):
-            video_config["mode"] = self._mode_value(preset)
         model_config_override = {"modelMap": {"videoGenModelConfig": video_config}}
 
-        logger.info(f"i2v config: preset={preset!r}, mode_value={self._mode_value(preset)!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
+        logger.info(f"i2v config: preset={preset!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
 
         async def _stream():
             session = _new_session()
@@ -286,9 +276,8 @@ class VideoService:
             "parentPostId": post_id,
             "resolutionName": resolution,
             "videoLength": video_length,
+            "mode": "extremely-spicy-or-crazy",
         }
-        if preset in ("spicy", "fun"):
-            video_config["mode"] = self._mode_value(preset)
         model_config_override = {"modelMap": {"videoGenModelConfig": video_config}}
 
         async def _stream():
