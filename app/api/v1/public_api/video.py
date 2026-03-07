@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.core.auth import verify_public_key
 from app.core.logger import logger
+from app.core.exceptions import AppException
 from app.services.grok.services.video import VideoService
 from app.services.grok.services.model import ModelService
 

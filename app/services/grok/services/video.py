@@ -34,7 +34,7 @@ from app.services.reverse.media_post import MediaPostReverse
 from app.services.reverse.video_upscale import VideoUpscaleReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.services.token.manager import BASIC_POOL_NAME
-from app.services.grok.services.video_token_cache import store_video_token
+from app.services.grok.services.video_token_cache import store_video_context
 
 _VIDEO_SEMAPHORE = None
 _VIDEO_SEM_VALUE = 0
@@ -599,6 +599,7 @@ class VideoStreamProcessor(BaseProcessor):
         """Process video stream response."""
         idle_timeout = get_config("video.stream_timeout")
         video_yielded = False
+        _conversation_id = ""
 
         try:
             async for line in _with_idle_timeout(response, idle_timeout, self.model):
@@ -609,6 +610,12 @@ class VideoStreamProcessor(BaseProcessor):
                     data = orjson.loads(line)
                 except orjson.JSONDecodeError:
                     continue
+
+                # Capture conversationId from first response line
+                if not _conversation_id:
+                    conv = data.get("result", {}).get("conversation", {})
+                    if conv_id := conv.get("conversationId"):
+                        _conversation_id = conv_id
 
                 resp = data.get("result", {}).get("response", {})
                 is_thinking = bool(resp.get("isThinking"))
@@ -689,11 +696,11 @@ class VideoStreamProcessor(BaseProcessor):
                             self.think_opened = False
 
                         if video_url:
-                            # Store token for extend support
+                            # Store token + conversationId for extend support
                             vid_for_cache = video_post_id or self._extract_video_id(video_url)
                             if vid_for_cache:
-                                store_video_token(vid_for_cache, self.token)
-                                logger.info(f"Cached token for video extend: {vid_for_cache}")
+                                store_video_context(vid_for_cache, self.token, _conversation_id)
+                                logger.info(f"Cached context for video extend: vid={vid_for_cache}, conv={_conversation_id}")
 
                             if self.upscale_on_finish:
                                 yield self._sse("正在对视频进行超分辨率\n")
@@ -807,6 +814,7 @@ class VideoCollectProcessor(BaseProcessor):
         response_id = ""
         content = ""
         idle_timeout = get_config("video.stream_timeout")
+        _conversation_id = ""
 
         try:
             async for line in _with_idle_timeout(response, idle_timeout, self.model):
@@ -817,6 +825,12 @@ class VideoCollectProcessor(BaseProcessor):
                     data = orjson.loads(line)
                 except orjson.JSONDecodeError:
                     continue
+
+                # Capture conversationId for extend support
+                if not _conversation_id:
+                    conv = data.get("result", {}).get("conversation", {})
+                    if conv_id := conv.get("conversationId"):
+                        _conversation_id = conv_id
 
                 resp = data.get("result", {}).get("response", {})
 
@@ -849,8 +863,8 @@ class VideoCollectProcessor(BaseProcessor):
                                 or self._extract_video_id(video_url)
                             )
                             if vid_for_cache:
-                                store_video_token(vid_for_cache, self.token)
-                                logger.info(f"Cached token for video extend: {vid_for_cache}")
+                                store_video_context(vid_for_cache, self.token, _conversation_id)
+                                logger.info(f"Cached context for video extend: vid={vid_for_cache}, conv={_conversation_id}")
 
                             if self.upscale_on_finish:
                                 video_url = await self._upscale_video_url(video_url)
