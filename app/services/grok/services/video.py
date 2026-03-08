@@ -336,7 +336,7 @@ class VideoService:
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
 
-        max_token_retries = 1  # No retry — fail fast for better UX
+        max_token_retries = 5  # Retry with different tokens — moderation is per-account probabilistic
         last_error: Exception | None = None
 
         if reasoning_effort is None:
@@ -416,9 +416,10 @@ class VideoService:
                         except UpstreamException as e:
                             last_error = e
                             if str(e) == "MODERATED_VIDEO":
-                                logger.warning(f"Video moderated on token {token[:10]}... content blocked by Grok")
-                                yield 'data: {"id":"sys","object":"chat.completion.chunk","created":0,"model":"video","choices":[{"index":0,"delta":{"content":"\\n**[内容审核]** Grok 拦截了此内容，请调整 prompt 或 preset 后重试。\\n"},"finish_reason":"stop"}]}\n\n'
-                                return  # Stop immediately, don't retry — free accounts all have same moderation
+                                await token_mgr.mark_rate_limited(token)
+                                logger.warning(f"Video moderated on token {token[:10]}... trying next account (attempt {attempt + 1}/{max_token_retries})")
+                                yield 'data: {"id":"sys","object":"chat.completion.chunk","created":0,"model":"video","choices":[{"index":0,"delta":{"content":"\\n**[系统防御机制触发]** 当前Grok账号遭遇审核拦截，正在自动切换账号重试...\\n"},"finish_reason":null}]}\n\n'
+                                stream_failed = True
                             elif rate_limited(e):
                                 await token_mgr.mark_rate_limited(token)
                                 logger.warning(f"Token {token[:10]}... rate limited (429), trying next token (attempt {attempt + 1}/{max_token_retries})")
@@ -508,8 +509,9 @@ class VideoService:
                 except UpstreamException as e:
                     last_error = e
                     if str(e) == "MODERATED_VIDEO":
-                        logger.warning(f"Video moderated on token {token[:10]}... content blocked by Grok")
-                        raise  # Stop immediately, don't retry — free accounts all have same moderation
+                        await token_mgr.mark_rate_limited(token)
+                        logger.warning(f"Video moderated on token {token[:10]}... trying next account (attempt {attempt + 1}/{max_token_retries})")
+                        continue
                     if rate_limited(e):
                         await token_mgr.mark_rate_limited(token)
                         logger.warning(f"Token {token[:10]}... rate limited (429), trying next token (attempt {attempt + 1}/{max_token_retries})")
