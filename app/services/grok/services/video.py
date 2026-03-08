@@ -161,8 +161,9 @@ class VideoService:
             "resolutionName": resolution_name,
             "videoLength": video_length,
         }
-        # EXPERIMENT: restore d5c9a75 logic (mode=normal for normal preset)
-        base_config["mode"] = self._mode_value(preset)
+        # DO NOT send mode in config — Grok's moderation checks this field.
+        # Sending "extremely-spicy-or-crazy" here triggers instant block.
+        # The --mode flag in message text bypasses moderation. See grok-video-nsfw-moderation.md
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
@@ -216,7 +217,7 @@ class VideoService:
             "resolutionName": resolution,
             "videoLength": video_length,
         }
-        base_config["mode"] = self._mode_value(preset)
+        # DO NOT send mode in config — triggers Grok moderation. See grok-video-nsfw-moderation.md
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         logger.info(f"i2v config: preset={preset!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
@@ -275,7 +276,7 @@ class VideoService:
             "resolutionName": resolution,
             "videoLength": video_length,
         }
-        base_config["mode"] = self._mode_value(preset)
+        # DO NOT send mode in config — triggers Grok moderation. See grok-video-nsfw-moderation.md
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
