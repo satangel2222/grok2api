@@ -161,13 +161,9 @@ class VideoService:
             "resolutionName": resolution_name,
             "videoLength": video_length,
         }
-        # Always include mode in config for NSFW pass-through.
-        # "extremely-spicy-or-crazy" tells Grok to relax content moderation.
-        # Style is controlled by --mode flag in message text, not config mode.
+        # Only include mode for spicy/fun (e711bc6 logic — high prompt compliance for normal)
         if preset in ("spicy", "fun"):
             base_config["mode"] = self._mode_value(preset)
-        else:
-            base_config["mode"] = "extremely-spicy-or-crazy"
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
@@ -221,14 +217,12 @@ class VideoService:
             "resolutionName": resolution,
             "videoLength": video_length,
         }
-        # Always include mode for NSFW pass-through.
+        # Only include mode for spicy/fun (e711bc6 logic — high prompt compliance for normal)
         if preset in ("spicy", "fun"):
             base_config["mode"] = self._mode_value(preset)
-        else:
-            base_config["mode"] = "extremely-spicy-or-crazy"
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
-        logger.info(f"i2v config: preset={preset!r}, mode_value={base_config['mode']!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
+        logger.info(f"i2v config: preset={preset!r}, mode_in_config={base_config.get('mode', 'NOT_SET')!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
 
         async def _stream():
             session = _new_session()
@@ -284,11 +278,9 @@ class VideoService:
             "resolutionName": resolution,
             "videoLength": video_length,
         }
-        # Always include mode for NSFW pass-through.
+        # Only include mode for spicy/fun (e711bc6 logic — high prompt compliance for normal)
         if preset in ("spicy", "fun"):
             base_config["mode"] = self._mode_value(preset)
-        else:
-            base_config["mode"] = "extremely-spicy-or-crazy"
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
