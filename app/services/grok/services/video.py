@@ -323,7 +323,7 @@ class VideoService:
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
 
-        max_token_retries = min(3, int(get_config("retry.max_retry")))
+        max_token_retries = 1  # No retry — fail fast for better UX
         last_error: Exception | None = None
 
         if reasoning_effort is None:
