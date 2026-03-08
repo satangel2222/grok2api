@@ -64,12 +64,9 @@ class VideoService:
 
     @staticmethod
     def _mode_flag(preset: str) -> str:
-        mode_map = {
-            "fun": "--mode=extremely-crazy",
-            "normal": "--mode=normal",
-            "spicy": "--mode=extremely-spicy-or-crazy",
-        }
-        return mode_map.get(preset, "--mode=custom")
+        # Always --mode=normal in text for prompt compliance.
+        # NSFW bypass is handled by config mode field, not text flag.
+        return "--mode=normal"
 
     @staticmethod
     def _mode_value(preset: str) -> str:
