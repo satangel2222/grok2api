@@ -64,15 +64,12 @@ class VideoService:
 
     @staticmethod
     def _mode_flag(preset: str) -> str:
-        # Text flag affects BOTH moderation AND video style.
-        # extremely-spicy-or-crazy = relax moderation + "crazy" style
-        # normal = strict moderation + follow prompt precisely
         mode_map = {
             "fun": "--mode=extremely-crazy",
-            "normal": "--mode=extremely-spicy-or-crazy",
+            "normal": "--mode=normal",
             "spicy": "--mode=extremely-spicy-or-crazy",
         }
-        return mode_map.get(preset, "--mode=extremely-spicy-or-crazy")
+        return mode_map.get(preset, "--mode=custom")
 
     @staticmethod
     def _mode_value(preset: str) -> str:
