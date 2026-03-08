@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-_TTL = 3600  # 1 hour
+_TTL = 14400  # 4 hours
 
 
 @dataclass
