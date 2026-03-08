@@ -161,13 +161,8 @@ class VideoService:
             "resolutionName": resolution_name,
             "videoLength": video_length,
         }
-        # Always include mode in config for NSFW pass-through.
-        # "normal" breaks prompt compliance, so use spicy for all presets.
-        # Style is controlled by --mode flag in message text, not config mode.
-        if preset in ("spicy", "fun"):
-            base_config["mode"] = self._mode_value(preset)
-        else:
-            base_config["mode"] = "extremely-spicy-or-crazy"
+        # EXPERIMENT: restore d5c9a75 logic (mode=normal for normal preset)
+        base_config["mode"] = self._mode_value(preset)
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
@@ -221,10 +216,7 @@ class VideoService:
             "resolutionName": resolution,
             "videoLength": video_length,
         }
-        if preset in ("spicy", "fun"):
-            base_config["mode"] = self._mode_value(preset)
-        else:
-            base_config["mode"] = "extremely-spicy-or-crazy"
+        base_config["mode"] = self._mode_value(preset)
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         logger.info(f"i2v config: preset={preset!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
@@ -283,10 +275,7 @@ class VideoService:
             "resolutionName": resolution,
             "videoLength": video_length,
         }
-        if preset in ("spicy", "fun"):
-            base_config["mode"] = self._mode_value(preset)
-        else:
-            base_config["mode"] = "extremely-spicy-or-crazy"
+        base_config["mode"] = self._mode_value(preset)
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
@@ -334,7 +323,7 @@ class VideoService:
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
 
-        max_token_retries = max(100, int(get_config("retry.max_retry")))
+        max_token_retries = min(3, int(get_config("retry.max_retry")))
         last_error: Exception | None = None
 
         if reasoning_effort is None:
@@ -414,10 +403,9 @@ class VideoService:
                         except UpstreamException as e:
                             last_error = e
                             if str(e) == "MODERATED_VIDEO":
-                                await token_mgr.mark_rate_limited(token)
-                                logger.warning(f"Video moderated on token {token[:10]}... trying next account")
-                                yield 'data: {"id":"sys","object":"chat.completion.chunk","created":0,"model":"video","choices":[{"index":0,"delta":{"content":"\\n**[系统防御机制触发]** 当前Grok账号遭遇官方对图源的强力视觉拦截。正在抛弃该高风险账号并自动为您切换至新的白名账号并发重试，请稍候...\\n"},"finish_reason":null}]}\n\n'
-                                stream_failed = True
+                                logger.warning(f"Video moderated on token {token[:10]}... content blocked by Grok")
+                                yield 'data: {"id":"sys","object":"chat.completion.chunk","created":0,"model":"video","choices":[{"index":0,"delta":{"content":"\\n**[内容审核]** Grok 拦截了此内容，请调整 prompt 或 preset 后重试。\\n"},"finish_reason":"stop"}]}\n\n'
+                                return  # Stop immediately, don't retry — free accounts all have same moderation
                             elif rate_limited(e):
                                 await token_mgr.mark_rate_limited(token)
                                 logger.warning(f"Token {token[:10]}... rate limited (429), trying next token (attempt {attempt + 1}/{max_token_retries})")
@@ -507,9 +495,8 @@ class VideoService:
                 except UpstreamException as e:
                     last_error = e
                     if str(e) == "MODERATED_VIDEO":
-                        await token_mgr.mark_rate_limited(token)
-                        logger.warning(f"Video moderated on token {token[:10]}... trying next account")
-                        continue
+                        logger.warning(f"Video moderated on token {token[:10]}... content blocked by Grok")
+                        raise  # Stop immediately, don't retry — free accounts all have same moderation
                     if rate_limited(e):
                         await token_mgr.mark_rate_limited(token)
                         logger.warning(f"Token {token[:10]}... rate limited (429), trying next token (attempt {attempt + 1}/{max_token_retries})")
