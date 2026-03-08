@@ -161,9 +161,13 @@ class VideoService:
             "resolutionName": resolution_name,
             "videoLength": video_length,
         }
-        # Only include mode for spicy/fun presets (upstream does NOT send mode for normal)
+        # Always include mode in config for NSFW pass-through.
+        # "normal" breaks prompt compliance, so use spicy for all presets.
+        # Style is controlled by --mode flag in message text, not config mode.
         if preset in ("spicy", "fun"):
             base_config["mode"] = self._mode_value(preset)
+        else:
+            base_config["mode"] = "extremely-spicy-or-crazy"
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
@@ -219,6 +223,8 @@ class VideoService:
         }
         if preset in ("spicy", "fun"):
             base_config["mode"] = self._mode_value(preset)
+        else:
+            base_config["mode"] = "extremely-spicy-or-crazy"
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         logger.info(f"i2v config: preset={preset!r}, message={message!r}, config={orjson.dumps(model_config_override).decode()}")
@@ -279,6 +285,8 @@ class VideoService:
         }
         if preset in ("spicy", "fun"):
             base_config["mode"] = self._mode_value(preset)
+        else:
+            base_config["mode"] = "extremely-spicy-or-crazy"
         model_config_override = {"modelMap": {"videoGenModelConfig": base_config}}
 
         async def _stream():
