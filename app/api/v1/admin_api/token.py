@@ -15,6 +15,13 @@ from app.services.token.manager import get_token_manager
 router = APIRouter()
 
 
+@router.get("/tokens/stats", dependencies=[Depends(verify_app_key)])
+async def get_token_stats():
+    """轻量级 Token 池统计（仅返回计数，~200 bytes）"""
+    mgr = await get_token_manager()
+    return mgr.get_stats()
+
+
 @router.get("/tokens", dependencies=[Depends(verify_app_key)])
 async def get_tokens():
     """获取所有 Token"""
